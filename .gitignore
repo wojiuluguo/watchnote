@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+.kotlin/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# 本地配置
+local.properties
+
+# IDE
+.idea/
+*.iml
+*.hprof
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 签名/密钥（测试签名保留在仓库里以便直接构建，正式发布请替换）
+*.jks
+*.p12
