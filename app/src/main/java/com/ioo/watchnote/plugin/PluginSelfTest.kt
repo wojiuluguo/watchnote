@@ -603,6 +603,31 @@ object PluginSelfTest {
             hook.invoke()
         }
 
+        // 28. 外置插件 ABI：.wplugin 是独立编译的 dex，里面写死了宿主必须存在的类名。
+        //     release 版一旦被 R8 改名或删掉（4.1.19 的 kotlin.Unit -> m32 就是这么炸的），
+        //     插件在真机上就报 Class not found using the boot class loader。
+        //     这条把「只有装插件才炸」的问题变成自测里一眼能看见的失败。
+        check("外置插件运行时要用的类名没被混淆") {
+            val required = listOf(
+                "kotlin.Unit",
+                "kotlin.jvm.functions.Function0",
+                "kotlin.jvm.functions.Function1",
+                "kotlin.jvm.internal.Intrinsics",
+                "com.ioo.watchnote.plugin.WristPlugin",
+                "com.ioo.watchnote.plugin.PluginHost",
+                "com.ioo.watchnote.plugin.ButtonSpec",
+                "com.ioo.watchnote.plugin.ButtonSlot",
+                "com.ioo.watchnote.plugin.PluginManifest",
+                "com.ioo.watchnote.plugin.ButtonRegistry",
+            )
+            val missing = required.filter { name ->
+                runCatching {
+                    Class.forName(name, false, PluginSelfTest::class.java.classLoader)
+                }.isFailure
+            }
+            if (missing.isEmpty()) null else "这些类被改名或删掉了：" + missing.joinToString("、")
+        }
+
         return results
     }
 }
