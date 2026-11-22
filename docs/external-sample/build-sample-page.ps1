@@ -23,7 +23,7 @@ $manifest = @'
   "schemaVersion": 1,
   "id": "com.example.page",
   "name": "示例页面插件",
-  "version": 1,
+  "version": 2,
   "minApi": 1,
   "entryClass": "com.example.page.PagePlugin",
   "permissions": ["READ_NOTES"],

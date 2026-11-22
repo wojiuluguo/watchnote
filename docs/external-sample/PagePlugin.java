@@ -24,7 +24,7 @@ public final class PagePlugin implements WristPlugin {
     private static final String ID = "com.example.page";
 
     private final PluginManifest manifest =
-            new PluginManifest(ID, "示例页面插件", 1, 1, Collections.singleton(Permission.READ_NOTES));
+            new PluginManifest(ID, "示例页面插件", 2, 1, Collections.singleton(Permission.READ_NOTES));
 
     @Override
     public PluginManifest getManifest() {
