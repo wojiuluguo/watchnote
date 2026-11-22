@@ -6,6 +6,18 @@
 - 当前版本：**4.1.22（versionCode 131）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
+## 下载与安装（Releases）
+
+最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.22（versionCode 131）**：
+
+| 附件 | 说明 |
+| --- | --- |
+| [watchnote-4.1.22-131.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.22/watchnote-4.1.22-131.apk) | 腕记 Beta 4.1.22，安装到手表/手机（Android 8.0+） |
+| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.22/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
+| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.22/page-demo.wplugin) | 示例页面插件：带一个页面，点「计数加一」数字实时变 |
+
+安装后到「设置 → 关于 → 自测工具」确认插件自检 32/32 通过。插件安装见下文「插件系统」。
+
 ## 页面
 
 - **笔记**：分类筛选、新建/编辑/查看、勾完成、长按删除
