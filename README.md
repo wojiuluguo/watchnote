@@ -6,6 +6,12 @@
 - 当前版本：**4.1.22（versionCode 131）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
+## 支持作者
+
+腕记由个人开发者 **wojiuluguo** 独立开发并免费发布，GitHub 账号与爱发电主页同名。
+
+- 爱发电主页：https://ifdian.net/a/wojiuluguo
+
 ## 下载与安装（Releases）
 
 最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.22（versionCode 131）**：
