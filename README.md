@@ -8,9 +8,13 @@
 
 ## 支持作者
 
-腕记由个人开发者 **wojiuluguo** 独立开发并免费发布，GitHub 账号与爱发电主页同名。
+腕记由个人开发者 **wojiuluguo** 独立开发并免费发布。
 
-- 爱发电主页：https://ifdian.net/a/wojiuluguo
+- GitHub 账号：wojiuluguo（[wojiuluguo/watchnote](https://github.com/wojiuluguo/watchnote)）
+- 爱发电：昵称「我就」，主页 <https://ifdian.net/a/wojiuluguo>
+- 爱发电作品集「腕记 WristNote」：<https://ifdian.net/album/9f79f506e67511f1a687525400c8052f>
+
+如果喜欢腕记，欢迎在爱发电支持后续开发。
 
 ## 下载与安装（Releases）
 
