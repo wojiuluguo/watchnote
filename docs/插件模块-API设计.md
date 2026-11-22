@@ -18,7 +18,12 @@
 > 系统文件选择器安装入口（选 .wplugin → 预览 → 确认 → 安装），23 项自测（4.1.13 / versionCode 122）；
 > 外置插件可选作者签名（ECDSA P-256，换钥匙/未签名覆盖被拒，预览与详情显示公钥指纹），25 项自测（4.1.14 / versionCode 123）；
 > 两条自助安装通道：手机浏览器传包 / 手表按直链自己下载（`PluginReceiverServer`，局域网网页，25 项自测不变）（4.1.15 / versionCode 124）；
-> PAGE_BOTTOM 改由宿主页面壳统一摆放与升降（`LocalPluginPageBottomBar` → `SubPageFrame(bottomStart)`，与主页面小圆按钮共用 `rememberEdgeReveal`），不再跟大返回键并排（4.1.16 / versionCode 125）。
+> PAGE_BOTTOM 改由宿主页面壳统一摆放与升降（`LocalPluginPageBottomBar` → `SubPageFrame(bottomStart)`，与主页面小圆按钮共用 `rememberEdgeReveal`），不再跟大返回键并排（4.1.16 / versionCode 125）；
+> 自测第 20 项「外置插件清单校验」改为用 JSONObject 构造坏清单（原来字符串 replace 因缩进不匹配而假失败），25 项全绿（4.1.17 / versionCode 126）；
+> 外置插件真机安装修复第一轮：解压后 dex 一律置只读（Android 14+ 拒载可写 dex）、加载失败原因写 EventLog、手机传包文件名按 UTF-8 还原，自测加第 26 项「示例包真加载」（4.1.18 / versionCode 127）；
+> 安装诊断补全：自测第 27 项「示例包真装一遍」、页面/按钮注册被拒绝与安装各阶段都写日志、启动日志带 sdk/model、安装前清理残留（4.1.19 / versionCode 128）；
+> 外置插件 ABI 稳定：release 整体 `-dontobfuscate` 并钉死插件运行时类，自测第 28 项点名检查这些类没被改名（4.1.20 / versionCode 129）；
+> **声明式页面** `SimplePage`（+ `SimpleAction`）：插件只交统计行/按钮行和一个回调，宿主用 `Official.Page/Stat/Button` 渲染，Java + d8 编的外置插件也能带页面；新增 PageRegistry.add(SimplePage)、内置第二个示例包 page-demo.wplugin、自测第 29/30 项（4.1.21 / versionCode 130）。
 
 ## 一句话结论
 

@@ -25,6 +25,7 @@ class PageRegistry internal constructor(
 ) {
     fun add(spec: PageSpec): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
     fun add(spec: ListPageSpec): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
+    fun add(spec: SimplePage): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
 
     private fun track(result: RegisterResult, what: String): RegisterResult {
         if (result is RegisterResult.Rejected) onReject?.invoke(what + "：" + result.reason)
@@ -384,6 +385,7 @@ class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueS
 
     internal fun addPage(owner: String, spec: PageSpec): RegisterResult = addPageChecked(owner, spec)
     internal fun addPage(owner: String, spec: ListPageSpec): RegisterResult = addPageChecked(owner, spec)
+    internal fun addPage(owner: String, spec: SimplePage): RegisterResult = addPageChecked(owner, spec)
 
     /** 内容页和列表页共用的校验：命名空间、重复、每插件页数上限。 */
     private fun addPageChecked(owner: String, spec: PluginPageSpec): RegisterResult {

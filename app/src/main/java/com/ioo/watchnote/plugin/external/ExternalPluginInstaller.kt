@@ -240,12 +240,17 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
      * 自测专用：把内置示例插件包真正解压并用 DexClassLoader 加载一遍（不安装、不改任何记录）。
      * 返回 null = 通过；否则是具体原因。补的是「只校验结构、从没真加载过外置 dex」的空洞。
      */
-    fun selfTestExternalLoad(): String? {
-        val packageFile = File(appContext.cacheDir, "selftest-sample.wplugin")
+    fun selfTestExternalLoad(): String? = selfTestExternalLoadAsset(BUNDLED_SAMPLE)
+
+    /** 自测专用：页面型示例包真加载（页面型 dex 引用 SimplePage/SimpleAction，ABI 不一样）。 */
+    fun selfTestExternalPageLoad(): String? = selfTestExternalLoadAsset(PAGE_SAMPLE)
+
+    private fun selfTestExternalLoadAsset(asset: String): String? {
+        val packageFile = File(appContext.cacheDir, "selftest-sample-" + File(asset).name)
         val extractDir = File(appContext.cacheDir, "selftest-extract")
         val codeCache = File(appContext.cacheDir, "selftest-dex")
         return try {
-            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+            appContext.assets.open(asset).use { input ->
                 packageFile.outputStream().use { output -> input.copyTo(output) }
             }
             val checked = ExternalPackageChecker.inspect(packageFile)
@@ -284,12 +289,17 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
      * 补的是 4.1.18 的第二个空洞：26 项里只「加载」不「注册」，所以自测全绿、真机装
      * 同一个包却卡在「安装被拒绝」。现在自测会完整走一遍真实安装链路。
      */
-    fun selfTestExternalInstall(): String? {
-        val packageFile = File(appContext.cacheDir, "selftest-install.wplugin")
+    fun selfTestExternalInstall(): String? = selfTestExternalInstallAsset(BUNDLED_SAMPLE, requirePage = false)
+
+    /** 自测专用：页面型示例包真装一遍，而且必须真的注册出页面。 */
+    fun selfTestExternalPageInstall(): String? = selfTestExternalInstallAsset(PAGE_SAMPLE, requirePage = true)
+
+    private fun selfTestExternalInstallAsset(asset: String, requirePage: Boolean): String? {
+        val packageFile = File(appContext.cacheDir, "selftest-install-" + File(asset).name)
         var testId: String? = null
         var installedByTest = false
         return try {
-            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+            appContext.assets.open(asset).use { input ->
                 packageFile.outputStream().use { output -> input.copyTo(output) }
             }
             val checked = ExternalPackageChecker.inspect(packageFile)
@@ -315,7 +325,13 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                     } else {
                         val pages = core.pagesOf(id).size
                         val buttons = core.buttonsOfPlugin(id).size
-                        if (pages + buttons == 0) "真装完成但一个页面/按钮都没注册上" else null
+                        if (requirePage && pages == 0) {
+                            "真装完成但没有注册出页面（页面型插件的页面链路没通）"
+                        } else if (pages + buttons == 0) {
+                            "真装完成但一个页面/按钮都没注册上"
+                        } else {
+                            null
+                        }
                     }
                 }
             }
@@ -560,6 +576,8 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
 
     companion object {
         const val BUNDLED_SAMPLE = "plugins/hello.wplugin"
+        /** 4.1.21 起内置的第二个示例包：带页面（按钮型示例只加一行按钮，覆盖不到页面链路）。 */
+        const val PAGE_SAMPLE = "plugins/page-demo.wplugin"
         private const val PREFS_NAME = "watchnote_external_plugins"
         private const val KEY_RECORDS = "records"
         private const val DIR_PLUGINS = "plugins"

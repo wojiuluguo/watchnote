@@ -51,6 +51,7 @@ object PluginSelfTest {
         store: Store,
         externalSelfTest: (() -> String?)? = null,
         externalSelfTestInstall: (() -> String?)? = null,
+        externalPageSelfTestInstall: (() -> String?)? = null,
     ): List<PluginSelfTestResult> {
         val results = ArrayList<PluginSelfTestResult>()
         fun check(name: String, block: () -> String?) {
@@ -613,6 +614,11 @@ object PluginSelfTest {
                 "kotlin.jvm.functions.Function0",
                 "kotlin.jvm.functions.Function1",
                 "kotlin.jvm.internal.Intrinsics",
+                "com.ioo.watchnote.plugin.SimplePage",
+                "com.ioo.watchnote.plugin.SimpleAction",
+                "com.ioo.watchnote.plugin.SimpleRow",
+                "com.ioo.watchnote.plugin.PageKind",
+                "com.ioo.watchnote.plugin.PageRegistry",
                 "com.ioo.watchnote.plugin.WristPlugin",
                 "com.ioo.watchnote.plugin.PluginHost",
                 "com.ioo.watchnote.plugin.ButtonSpec",
@@ -626,6 +632,42 @@ object PluginSelfTest {
                 }.isFailure
             }
             if (missing.isEmpty()) null else "这些类被改名或删掉了：" + missing.joinToString("、")
+        }
+
+        // 29. 声明式页面：不写 Compose 的插件（Java + d8）也能贡献页面，行由宿主用官方组件画。
+        //     这条盯的是「页面 API 别只有 Kotlin + Compose 写得了」——外置插件正是那种插件。
+        check("声明式页面能注册并交给宿主渲染") {
+            val core = PluginCore(store)
+            var tooMany: RegisterResult? = null
+            val p = ProbePlugin(manifestOf("test.simple")) { host ->
+                host.pages.add(
+                    SimplePage(id = "test.simple:page", title = "声明页")
+                        .sub("自测")
+                        .stat("行数", "2")
+                        .button("＋", "点我", actionId = "inc")
+                        .onAction { }
+                )
+                tooMany = host.pages.add(SimplePage(id = "test.other:page", title = "越权"))
+            }
+            when (val r = core.install(p)) {
+                is RegisterResult.Ok -> Unit
+                is RegisterResult.Rejected -> return@check "声明式页面没装上：" + r.reason
+            }
+            val spec = core.page("test.simple:page") ?: return@check "注册后查不到声明式页面"
+            if (spec !is SimplePage) return@check "声明式页面被存成了别的类型：" + spec.kind
+            if (spec.kind != PageKind.SUB) return@check "声明式页面的 kind 不是 SUB：" + spec.kind
+            if (spec.rows.size != 2) return@check "行数不对：" + spec.rows.size
+            if (tooMany !is RegisterResult.Rejected) return@check "没带自己前缀的声明式页面被接受了"
+            if (core.pagesOf("test.simple").size != 1) return@check "页面归属不对"
+            core.uninstall("test.simple")
+            if (core.page("test.simple:page") != null) "卸载后声明式页面还留着" else null
+        }
+
+        // 30. 页面型外置插件示例包：第 27 项装的是按钮型示例，页面链路（SimplePage -> 宿主渲染）
+        //     在真机上没有覆盖过；这条把内置的 page-demo.wplugin 真装一遍，并要求它注册出页面。
+        check("页面型外置插件示例包真装一遍") {
+            val hook = externalPageSelfTestInstall ?: return@check "没有可用的外置插件安装器（页面示例）"
+            hook.invoke()
         }
 
         return results

@@ -57,6 +57,9 @@ fun PluginPageHost(
             is PageSpec -> CompositionLocalProvider(LocalPluginPageBottomBar provides bottomBar) {
                 spec.content(scope, arg)
             }
+            is SimplePage -> CompositionLocalProvider(LocalPluginPageBottomBar provides bottomBar) {
+                SimplePageContent(spec, scope)
+            }
             is ListPageSpec -> SubPageListFrame(onBack = onClose, bottomStart = bottomBar) {
                 val lazyScope = this
                 val listScope = object : PluginListScope {
@@ -71,6 +74,31 @@ fun PluginPageHost(
                     }
                 }
                 spec.content(listScope, scope, arg)
+            }
+        }
+    }
+}
+
+/**
+ * 声明式页面（SimplePage）的宿主渲染（4.1.21 起）。
+ *
+ * 插件只交行数据（统计行 / 按钮行），这里一律用官方组件画：
+ * 页面壳、标题、返回键、圆屏安全区、表冠滚动、主题色都和内置页一模一样，
+ * 插件没有画自由画布的口子，也就不会出现「每个插件一个风格」的花花绿绿。
+ */
+@Composable
+private fun SimplePageContent(page: SimplePage, scope: PageScope) {
+    Official.Page(title = page.title, sub = page.subtitle, onBack = { scope.close() }) {
+        page.rows.forEach { row ->
+            when (row.kind) {
+                SimpleRowKind.STAT -> Official.Stat(row.label, row.value)
+                SimpleRowKind.BUTTON -> Official.Button(
+                    symbol = row.symbol.ifEmpty { "▸" },
+                    label = row.label,
+                    trailing = row.value.ifEmpty { null },
+                    danger = row.danger,
+                    onClick = { page.dispatch(row.actionId) },
+                )
             }
         }
     }
