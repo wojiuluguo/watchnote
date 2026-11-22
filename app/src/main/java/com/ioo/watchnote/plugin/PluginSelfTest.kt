@@ -47,7 +47,11 @@ object PluginSelfTest {
     private fun button(id: String, slot: ButtonSlot): ButtonSpec =
         ButtonSpec(id = id, slot = slot, icon = "•", label = "自测按钮", onClick = {})
 
-    fun run(store: Store): List<PluginSelfTestResult> {
+    fun run(
+        store: Store,
+        externalSelfTest: (() -> String?)? = null,
+        externalSelfTestInstall: (() -> String?)? = null,
+    ): List<PluginSelfTestResult> {
         val results = ArrayList<PluginSelfTestResult>()
         fun check(name: String, block: () -> String?) {
             val error = try {
@@ -582,6 +586,21 @@ object PluginSelfTest {
             if (ExternalInstallPolicy.signingLabel(null) != "未签名") return@check "未签名标签不对"
             if (!ExternalInstallPolicy.signingLabel("AAAA").contains("AAAA")) return@check "签名标签没带指纹"
             null
+        }
+
+        // 26. 外置插件真加载：内置示例包（和手机传的是同一个 .wplugin）解压后必须能被 DexClassLoader 加载。
+        //     这条补的是 4.1.18 之前的空洞：以前只校验包结构、从不加载外置 dex，
+        //     所以「自测全过、真机装示例包却报插件加载失败」可以同时成立。
+        check("外置插件示例包真加载") {
+            val hook = externalSelfTest ?: return@check "没有可用的外置插件安装器"
+            hook.invoke()
+        }
+
+        // 27. 外置插件真装一遍：示例包必须完整走完「解压 → 加载 → 注册 → 写记录」。
+        //     第 26 项只加载不注册，所以「加载全过、注册被拒」照样能全绿 —— 这条补上那个盲区。
+        check("外置插件示例包真装一遍") {
+            val hook = externalSelfTestInstall ?: return@check "没有可用的外置插件安装器"
+            hook.invoke()
         }
 
         return results

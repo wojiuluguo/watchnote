@@ -95,6 +95,8 @@ import kotlin.math.ceil
 @Composable
 internal fun SelfTestPage(
     store: Store,
+    externalSelfTest: () -> String?,
+    externalSelfTestInstall: () -> String?,
     onExport: () -> Unit,
     onCopy: () -> Unit,
     onClear: () -> Unit,
@@ -118,7 +120,7 @@ internal fun SelfTestPage(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
         )
         // 插件系统自测：单独建一个沙盒核心跑，不影响正在用的插件和设置
-        val pluginResults = remember { PluginSelfTest.run(store) }
+        val pluginResults = remember { PluginSelfTest.run(store, externalSelfTest, externalSelfTestInstall) }
         val failed = pluginResults.count { !it.ok }
         LaunchedEffect(Unit) {
             EventLog.add(

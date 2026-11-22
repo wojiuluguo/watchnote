@@ -381,6 +381,8 @@ fun AppRoot(activity: MainActivity, store: Store) {
         )
         SubPage.SelfTest -> SelfTestPage(
             store = store,
+            externalSelfTest = { externalInstaller.selfTestExternalLoad() },
+            externalSelfTestInstall = { externalInstaller.selfTestExternalInstall() },
             onExport = {
                 val p = activity.exportAppLog()
                 activity.toast(if (p != null) "日志已保存：" + p else "导出失败")

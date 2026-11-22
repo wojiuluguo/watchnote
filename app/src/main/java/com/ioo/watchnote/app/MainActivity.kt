@@ -59,7 +59,13 @@ class MainActivity : ComponentActivity() {
         Haptics.init(this)
         EventLog.add("app", "onCreate topTimePref=" + store.getShowTopTime())
         EventLog.add("app", "appScaffold defaultTime disabled")
-        EventLog.add("app", "onCreate version=" + (try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "?" }))
+        EventLog.add(
+            "app",
+            "onCreate version=" + (try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "?" }) +
+                " sdk=" + android.os.Build.VERSION.SDK_INT +
+                " model=" + android.os.Build.MODEL +
+                " device=" + android.os.Build.DEVICE
+        )
         setContent {
             WristNoteTheme(UiPrefsState.accent.value, UiPrefsState.customAccent.value) {
                 AppScaffold(timeText = { }) {

@@ -1,6 +1,7 @@
 package com.ioo.watchnote.plugin.external
 
 import android.content.Context
+import com.ioo.watchnote.EventLog
 import com.ioo.watchnote.plugin.Permission
 import com.ioo.watchnote.plugin.PluginCore
 import com.ioo.watchnote.plugin.RegisterResult
@@ -150,10 +151,11 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         val signingProblem = ExternalInstallPolicy.checkSigning(installedRecord?.keyFingerprint, keyFingerprint)
         if (signingProblem != null) return ExternalInstallResult.Failed(signingProblem)
 
-        if (core.isInstalled(id) || record(id) != null) {
-            core.disable(id)
-            deleteRecursively(pluginDir(id))
-        }
+        EventLog.add("plugin", "外置插件安装开始 " + file.name + "（" + file.length() + " B）：" + id + " v" + version)
+        // 无论记录里有没有，先把宿主里可能残留的同 id 状态收走。否则 core.install 会因为
+        // hosts 里还留着旧 entry 直接回「插件已安装：<id>」，4.1.18 真机上就是这么被拒的。
+        core.disable(id)
+        deleteRecursively(pluginDir(id))
 
         val pluginRoot = pluginDir(id)
         if (!pluginRoot.mkdirs() && !pluginRoot.isDirectory) {
@@ -173,14 +175,23 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             val codeCache = codeCacheDir(id)
             deleteRecursively(codeCache)
             codeCache.mkdirs()
-            val plugin = loadPlugin(finalDir, pkg.dexEntries, external.entryClass, codeCache, id)
-            if (plugin == null) {
-                deleteRecursively(pluginDir(id))
-                return ExternalInstallResult.Failed("插件加载失败（看关于→自测工具里的日志）")
+            EventLog.add("plugin", "外置插件已解压 " + finalDir.path + "，dex=" + pkg.dexEntries.size + " 个")
+            val plugin = when (val loaded = loadPlugin(finalDir, pkg.dexEntries, external.entryClass, codeCache, id)) {
+                is LoadResult.Failed -> {
+                    EventLog.add("plugin", "外置插件加载失败 " + id + "：" + loaded.reason)
+                    deleteRecursively(pluginDir(id))
+                    return ExternalInstallResult.Failed("插件加载失败：" + loaded.reason)
+                }
+                is LoadResult.Loaded -> {
+                    EventLog.add("plugin", "外置插件已加载 " + external.entryClass)
+                    loaded.plugin
+                }
             }
             when (val installed = core.install(plugin)) {
                 is RegisterResult.Ok -> Unit
                 is RegisterResult.Rejected -> {
+                    // 这条分支以前一个字都不写日志，所以真机只看到「安装被拒绝」却查不到原因。
+                    EventLog.add("plugin", "外置插件注册被拒绝 " + id + "：" + installed.reason)
                     deleteRecursively(pluginDir(id))
                     deleteRecursively(codeCache)
                     return ExternalInstallResult.Failed("安装被拒绝：" + installed.reason)
@@ -198,8 +209,10 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                 keyFingerprint = keyFingerprint,
             )
             writeRecords(readRecords().filter { it.id != id } + record)
+            EventLog.add("plugin", "外置插件安装完成 " + id + " v" + version)
             return ExternalInstallResult.Installed(record)
         } catch (t: Throwable) {
+            EventLog.add("plugin", "外置插件安装出错 " + id + "：" + (t.message ?: t.javaClass.simpleName))
             deleteRecursively(staging)
             deleteRecursively(pluginDir(id))
             deleteRecursively(codeCacheDir(id))
@@ -220,6 +233,101 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             ExternalInstallResult.Failed("读不到内置示例插件：" + (t.message ?: "assets 里没有 " + BUNDLED_SAMPLE))
         } finally {
             temp.delete()
+        }
+    }
+
+    /**
+     * 自测专用：把内置示例插件包真正解压并用 DexClassLoader 加载一遍（不安装、不改任何记录）。
+     * 返回 null = 通过；否则是具体原因。补的是「只校验结构、从没真加载过外置 dex」的空洞。
+     */
+    fun selfTestExternalLoad(): String? {
+        val packageFile = File(appContext.cacheDir, "selftest-sample.wplugin")
+        val extractDir = File(appContext.cacheDir, "selftest-extract")
+        val codeCache = File(appContext.cacheDir, "selftest-dex")
+        return try {
+            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+                packageFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            val checked = ExternalPackageChecker.inspect(packageFile)
+            if (checked !is ExternalPackageResult.Valid) {
+                return "示例包校验失败：" + (checked as ExternalPackageResult.Invalid).reason
+            }
+            val pkg = checked.pkg
+            deleteRecursively(extractDir)
+            if (!extractDir.mkdirs()) return "建不了临时解压目录"
+            deleteRecursively(codeCache)
+            codeCache.mkdirs()
+            extract(packageFile, extractDir)
+            when (val loaded = loadPlugin(
+                dir = extractDir,
+                dexEntries = pkg.dexEntries,
+                entryClass = pkg.manifest.entryClass,
+                codeCache = codeCache,
+                expectedId = pkg.manifest.manifest.id,
+            )) {
+                is LoadResult.Failed -> "加载失败：" + loaded.reason
+                is LoadResult.Loaded -> null
+            }
+        } catch (t: Throwable) {
+            "抛异常：" + describe(t)
+        } finally {
+            packageFile.delete()
+            deleteRecursively(extractDir)
+            deleteRecursively(codeCache)
+        }
+    }
+
+    /**
+     * 自测专用：把内置示例插件**真的装一遍**（解压 → 加载 → 注册 → 写记录），装完再恢复原状。
+     * 返回 null = 通过；否则是具体原因。
+     *
+     * 补的是 4.1.18 的第二个空洞：26 项里只「加载」不「注册」，所以自测全绿、真机装
+     * 同一个包却卡在「安装被拒绝」。现在自测会完整走一遍真实安装链路。
+     */
+    fun selfTestExternalInstall(): String? {
+        val packageFile = File(appContext.cacheDir, "selftest-install.wplugin")
+        var testId: String? = null
+        var installedByTest = false
+        return try {
+            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+                packageFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            val checked = ExternalPackageChecker.inspect(packageFile)
+            if (checked !is ExternalPackageResult.Valid) {
+                return "示例包校验失败：" + (checked as ExternalPackageResult.Invalid).reason
+            }
+            val id = checked.pkg.manifest.manifest.id
+            testId = id
+            if (record(id) != null) {
+                // 用户自己已经装过（或关掉）了示例插件：不动他的状态，只记一笔，别让自测报假失败
+                EventLog.add(
+                    "selftest",
+                    "跳过真装（已存在记录 " + id + "，宿主里" + (if (core.isInstalled(id)) "是活的" else "未注册") + "）",
+                )
+                return null
+            }
+            when (val result = installFromFile(packageFile)) {
+                is ExternalInstallResult.Failed -> "真装失败：" + result.reason
+                is ExternalInstallResult.Installed -> {
+                    installedByTest = true
+                    if (!core.isInstalled(id)) {
+                        "真装完成但宿主里没注册"
+                    } else {
+                        val pages = core.pagesOf(id).size
+                        val buttons = core.buttonsOfPlugin(id).size
+                        if (pages + buttons == 0) "真装完成但一个页面/按钮都没注册上" else null
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            "抛异常：" + describe(t)
+        } finally {
+            packageFile.delete()
+            // 自测装进去的测试插件要清干净，别让用户的管理页里多一个
+            if (installedByTest) {
+                val id = testId
+                if (id != null) runCatching { uninstall(id) }
+            }
         }
     }
 
@@ -270,8 +378,15 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             val codeCache = codeCacheDir(record.id)
             deleteRecursively(codeCache)
             codeCache.mkdirs()
-            val plugin = loadPlugin(dir, dexEntries, record.entryClass, codeCache, record.id)
-            if (plugin == null || core.install(plugin) is RegisterResult.Rejected) {
+            val loaded = loadPlugin(dir, dexEntries, record.entryClass, codeCache, record.id)
+            if (loaded is LoadResult.Failed) {
+                EventLog.add("plugin", "外置插件恢复失败 " + record.id + "：" + loaded.reason)
+                deleteRecursively(pluginDir(record.id))
+                deleteRecursively(codeCache)
+                continue
+            }
+            val plugin = (loaded as LoadResult.Loaded).plugin
+            if (core.install(plugin) is RegisterResult.Rejected) {
                 deleteRecursively(pluginDir(record.id))
                 deleteRecursively(codeCache)
                 continue
@@ -300,8 +415,17 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                 zip.getInputStream(entry).use { input ->
                     canonical.outputStream().use { output -> input.copyTo(output) }
                 }
+                // Android 14+ 不允许 DexClassLoader 加载「对应用可写」的 dex，
+                // 解压完立刻去掉写权限（4.1.18；之前只校验包结构，从没真正加载过外置 dex）。
+                canonical.setReadOnly()
             }
         }
+    }
+
+    /** 加载结果：成功拿到插件实例，或者给出具体原因（原因进日志和提示，不再只说「看日志」）。 */
+    private sealed interface LoadResult {
+        class Loaded(val plugin: WristPlugin) : LoadResult
+        class Failed(val reason: String) : LoadResult
     }
 
     private fun loadPlugin(
@@ -310,22 +434,49 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         entryClass: String,
         codeCache: File,
         expectedId: String,
-    ): WristPlugin? {
-        return try {
-            val dexPath = dexEntries.joinToString(File.pathSeparator) { File(dir, it).absolutePath }
-            val loader = DexClassLoader(dexPath, codeCache.absolutePath, null, appContext.classLoader)
-            val cls = Class.forName(entryClass, true, loader)
-            if (!WristPlugin::class.java.isAssignableFrom(cls)) {
-                return null
+    ): LoadResult {
+        val dexFiles = dexEntries.map { File(dir, it) }
+        // Android 14+ 会拒绝加载「应用可写」的 dex（SecurityException: Writable dex file ... is not allowed）。
+        // extract() 已经置过只读，这里再兜一次底；失败时重试一次再定论。
+        dexFiles.forEach { f ->
+            runCatching {
+                f.setWritable(false, false)
+                f.setReadOnly()
             }
-            val ctor = cls.getDeclaredConstructor()
-            ctor.isAccessible = true
-            val plugin = ctor.newInstance() as WristPlugin
-            if (plugin.manifest.id != expectedId) return null
-            plugin
-        } catch (t: Throwable) {
-            null
         }
+        val first = runCatching { loadPluginAttempt(dexFiles, entryClass, codeCache, expectedId) }
+        first.getOrNull()?.let { return it }
+        val second = runCatching { loadPluginAttempt(dexFiles, entryClass, codeCache, expectedId) }
+        second.getOrNull()?.let { return it }
+        return LoadResult.Failed(describe(second.exceptionOrNull() ?: first.exceptionOrNull()))
+    }
+
+    private fun loadPluginAttempt(
+        dexFiles: List<File>,
+        entryClass: String,
+        codeCache: File,
+        expectedId: String,
+    ): LoadResult {
+        val dexPath = dexFiles.joinToString(File.pathSeparator) { it.absolutePath }
+        val loader = DexClassLoader(dexPath, codeCache.absolutePath, null, appContext.classLoader)
+        val cls = Class.forName(entryClass, true, loader)
+        if (!WristPlugin::class.java.isAssignableFrom(cls)) {
+            return LoadResult.Failed("入口类没有实现 WristPlugin：" + entryClass)
+        }
+        val ctor = cls.getDeclaredConstructor()
+        ctor.isAccessible = true
+        val plugin = ctor.newInstance() as WristPlugin
+        if (plugin.manifest.id != expectedId) {
+            return LoadResult.Failed("代码里的插件 id 与清单不一致：" + plugin.manifest.id + " ≠ " + expectedId)
+        }
+        return LoadResult.Loaded(plugin)
+    }
+
+    private fun describe(t: Throwable?): String {
+        if (t == null) return "未知原因"
+        val root = generateSequence(t) { it.cause }.lastOrNull() ?: t
+        val message = root.message
+        return root.javaClass.simpleName + (if (message.isNullOrBlank()) "" else ": " + message)
     }
 
     private fun dexEntriesIn(dir: File): List<String> {

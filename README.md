@@ -3,7 +3,7 @@
 给小米 Watch 5（Wear OS，480×480 圆屏）做的免费手表笔记应用：记作业、记事情、课程表、倒计时，配中国传统色主题，并带一套可扩展的插件系统。
 
 - 包名：`com.ioo.watchnote`
-- 当前版本：**4.1.17（versionCode 126）**
+- 当前版本：**4.1.19（versionCode 128）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
 ## 页面
@@ -23,7 +23,7 @@
 - **可选签名**：插件可用 ECDSA P-256 作者签名，宿主记录但非强制
 - **能加就能收**：插件注册的页面和按钮都挂在 pluginId 名下，关闭/卸载一键收回
 - **数据隔离**：每个插件的数据存在自己的 `watchnote_plugin_<id>` 里，卸载只清自己的
-- **自检**：设置 → 关于 → 自检，25 项全部覆盖插件清单校验、加载器、插槽渲染等
+- **自检**：设置 → 关于 → 自检，27 项覆盖插件清单校验、加载器、插槽渲染、外置插件真加载与真安装等
 
 插件目录：`app/src/main/java/com/ioo/watchnote/plugin/`（含 `external/` 下的外置插件清单与安装器）
 
@@ -43,7 +43,7 @@ gradle --offline --console=plain :app:assembleRelease
 
 ## 文档
 
-- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.17 的更新记录
+- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.19 的更新记录
 - [docs/最终版施工计划.md](docs/最终版施工计划.md)：最终版各 Step 的施工计划
 - [docs/插件模块-版本说明.md](docs/插件模块-版本说明.md)：插件系统逐版说明
 - [docs/插件模块-API设计.md](docs/插件模块-API设计.md)：插件 API 设计与硬规则

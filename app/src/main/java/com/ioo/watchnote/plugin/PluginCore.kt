@@ -1,6 +1,7 @@
 package com.ioo.watchnote.plugin
 
 import androidx.compose.runtime.mutableStateListOf
+import com.ioo.watchnote.EventLog
 import com.ioo.watchnote.Note
 import com.ioo.watchnote.Store
 
@@ -16,17 +17,38 @@ data class PluginPage(val ownerPluginId: String, val spec: PluginPageSpec)
 data class PluginButton(val ownerPluginId: String, val spec: ButtonSpec)
 
 /** 插件手里那份页面注册器：只能 register/remove 自己的页面。 */
-class PageRegistry internal constructor(private val core: PluginCore, private val owner: String) {
-    fun add(spec: PageSpec): RegisterResult = core.addPage(owner, spec)
-    fun add(spec: ListPageSpec): RegisterResult = core.addPage(owner, spec)
+class PageRegistry internal constructor(
+    private val core: PluginCore,
+    private val owner: String,
+    /** 注册被拒时的回调：插件常不检查返回值，宿主替它记下来，出问题才查得到原因。 */
+    private val onReject: ((String) -> Unit)? = null,
+) {
+    fun add(spec: PageSpec): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
+    fun add(spec: ListPageSpec): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
+
+    private fun track(result: RegisterResult, what: String): RegisterResult {
+        if (result is RegisterResult.Rejected) onReject?.invoke(what + "：" + result.reason)
+        return result
+    }
+
     fun remove(pageId: String): Boolean = core.removePage(owner, pageId)
     fun removeAll(): Int = core.removePagesOf(owner)
     fun all(): List<PluginPageSpec> = core.pages().filter { it.ownerPluginId == owner }.map { it.spec }
 }
 
 /** 插件手里那份按钮注册器：只能往已有的三个插槽里塞。 */
-class ButtonRegistry internal constructor(private val core: PluginCore, private val owner: String) {
-    fun add(spec: ButtonSpec): RegisterResult = core.addButton(owner, spec)
+class ButtonRegistry internal constructor(
+    private val core: PluginCore,
+    private val owner: String,
+    private val onReject: ((String) -> Unit)? = null,
+) {
+    fun add(spec: ButtonSpec): RegisterResult = track(core.addButton(owner, spec), "按钮 " + spec.id)
+
+    private fun track(result: RegisterResult, what: String): RegisterResult {
+        if (result is RegisterResult.Rejected) onReject?.invoke(what + "：" + result.reason)
+        return result
+    }
+
     fun remove(buttonId: String): Boolean = core.removeButton(owner, buttonId)
     fun removeAll(): Int = core.removeButtonsOf(owner)
 }
@@ -119,8 +141,11 @@ class PluginHostImpl(
 ) : PluginHost {
     var plugin: WristPlugin? = null
 
-    override val pages: PageRegistry = PageRegistry(core, manifest.id)
-    override val buttons: ButtonRegistry = ButtonRegistry(core, manifest.id)
+    /** install() 期间被拒的页面/按钮注册；安装链路会写进日志，免得「装上了却什么都没出来」查不到原因。 */
+    val registerRejections = ArrayList<String>()
+
+    override val pages: PageRegistry = PageRegistry(core, manifest.id) { registerRejections.add(it) }
+    override val buttons: ButtonRegistry = ButtonRegistry(core, manifest.id) { registerRejections.add(it) }
     override val data: DataApi = DataApiImpl(core.store, manifest, kv)
     override val events: EventBus = core.busOf(manifest.id)
 
@@ -305,6 +330,9 @@ class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueS
         hosts[manifest.id] = host
         return try {
             plugin.install(host)
+            if (host.registerRejections.isNotEmpty()) {
+                EventLog.add("plugin", "插件 " + manifest.id + " 安装时有注册被拒绝：" + host.registerRejections.joinToString("；"))
+            }
             manifests.add(manifest)
             installErrors.remove(manifest.id)
             failureCounts.remove(manifest.id)

@@ -313,9 +313,23 @@ internal class PluginReceiverServer(
             if (next < 0) return null
             val nameMatch = Regex("filename=\"([^\"]*)\"").find(headers)
             if (nameMatch != null) {
-                return nameMatch.groupValues[1] to body.copyOfRange(dataStart, next)
+                return decodeFileName(nameMatch.groupValues[1]) to body.copyOfRange(dataStart, next)
             }
             cursor = next + 2
+        }
+    }
+
+    /**
+     * 手机浏览器/微信给的文件名是 UTF-8 字节，但整段 body 是按 ISO-8859-1 一字节一字符读进来的，
+     * 直接当文件名会变成「è̀é®°」这种乱码（4.1.18 修）。能安全还原成 UTF-8 就还原，否则保持原样。
+     */
+    private fun decodeFileName(raw: String): String {
+        return try {
+            val bytes = raw.toByteArray(Charsets.ISO_8859_1)
+            val utf8 = String(bytes, Charsets.UTF_8)
+            if (utf8.toByteArray(Charsets.UTF_8).contentEquals(bytes)) utf8 else raw
+        } catch (_: Throwable) {
+            raw
         }
     }
 
