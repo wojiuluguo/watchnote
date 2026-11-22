@@ -1,5 +1,16 @@
 package com.ioo.watchnote
 
+import com.ioo.watchnote.plugin.BuiltinPlugins
+import com.ioo.watchnote.plugin.HostScreen
+import com.ioo.watchnote.plugin.PluginCore
+import com.ioo.watchnote.plugin.PluginManagerPage
+import com.ioo.watchnote.plugin.PluginPrefs
+import com.ioo.watchnote.plugin.PrefKeyValueStore
+import com.ioo.watchnote.plugin.RegisterResult
+import com.ioo.watchnote.plugin.external.ExternalPluginInstaller
+import com.ioo.watchnote.plugin.PluginPageHost
+import com.ioo.watchnote.plugin.builtin.ThemePlugin
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -100,12 +111,12 @@ data class ConfirmData(
 )
 
 sealed interface SubPage {
-    object Theme : SubPage
-    data class ColorFamily(val index: Int) : SubPage
+    data class PluginPage(val pageId: String, val arg: Int = 0) : SubPage
     object Manage : SubPage
     object About : SubPage
     object AnimMode : SubPage
     object SelfTest : SubPage
+    object Plugins : SubPage
     object Share : SubPage
     object OpenSource : SubPage
     object GroupList : SubPage
@@ -133,6 +144,48 @@ fun AppRoot(activity: MainActivity, store: Store) {
     var confirm by remember { mutableStateOf<ConfirmData?>(null) }
     val animMode = UiPrefsState.animMode.value
     val scope = rememberCoroutineScope()
+    // 传 Context：插件私有 kv 落盘；自测用的沙盒核心不传，就是纯内存
+    val pluginCore = remember { PluginCore(store, kvFactory = { id -> PrefKeyValueStore(activity, id) }) }
+    val pluginPrefs = remember { PluginPrefs(activity) }
+    // 外置插件加载器：包结构检查 / 解压 / DexClassLoader / 记录，全在这里
+    val externalInstaller = remember { ExternalPluginInstaller(activity.applicationContext, pluginCore) }
+    pluginCore.toastHandler = { activity.toast(it) }
+    pluginCore.invalidateHandler = { refresh++ }
+    // 插件点按钮要开自己的页面时，走宿主这套栈，插件碰不到栈本身
+    pluginCore.navigateHandler = { pageId -> stack = stack + SubPage.PluginPage(pageId) }
+    // 插件引用官方页面（HostScreen 白名单）：这里只负责把枚举翻成宿主自己的页面
+    pluginCore.hostNavigateHandler = { screen ->
+        EventLog.add("plugin", "open host screen " + screen.name)
+        stack = stack + when (screen) {
+            HostScreen.ABOUT -> SubPage.About
+            HostScreen.SELF_TEST -> SubPage.SelfTest
+            HostScreen.OPEN_SOURCE -> SubPage.OpenSource
+            HostScreen.PLUGIN_MANAGER -> SubPage.Plugins
+            HostScreen.MANAGE -> SubPage.Manage
+            HostScreen.SPECIAL_LIST -> SubPage.SpecialList
+            HostScreen.SHARE_TO_PHONE -> SubPage.Share
+            HostScreen.ANIM_MODE -> SubPage.AnimMode
+        }
+    }
+    // 读快照：插件装/卸之后，设置页的「插件」行和「更换主题颜色」行都跟着变
+    val pluginCount = pluginCore.manifests.size
+    val themeInstalled = pluginCore.isInstalled(ThemePlugin.PLUGIN_ID)
+    LaunchedEffect(Unit) {
+        BuiltinPlugins.all.forEach { entry ->
+            if (pluginPrefs.isEnabled(entry.id)) {
+                val result = pluginCore.install(entry.build(store) { refresh++ })
+                if (result is RegisterResult.Rejected) {
+                    EventLog.add("plugin", "install " + entry.id + " 失败：" + result.reason)
+                }
+            }
+        }
+        // 外置插件：按上次装好的记录重新加载（不重新解压）
+        val restored = externalInstaller.restoreAll()
+        if (restored > 0) {
+            EventLog.add("plugin", "恢复外置插件 " + restored + " 个")
+            refresh++
+        }
+    }
     val pager = rememberPagerState(initialPage = 2000) { 4000 }
     val fullAnim = animMode == 0
     var hapticFirst by remember { mutableStateOf(true) }
@@ -163,7 +216,8 @@ fun AppRoot(activity: MainActivity, store: Store) {
                     active = page == pager.currentPage,
                     onAdd = { stack = stack + SubPage.NoteEdit("") },
                     onOpen = { stack = stack + SubPage.View(it) },
-                    onChanged = { refresh++ }
+                    onChanged = { refresh++ },
+                    pluginCore = pluginCore
                 )
                 1 -> TodoPage(
                     store = store,
@@ -217,11 +271,15 @@ fun AppRoot(activity: MainActivity, store: Store) {
                             store.resetAll(); refresh++
                         }
                     },
-                    onTheme = { stack = stack + SubPage.Theme },
+                    onTheme = { stack = stack + SubPage.PluginPage(ThemePlugin.PAGE_LIST) },
                     onAbout = {
                         EventLog.add("setting", "open about page")
                         stack = stack + SubPage.About
-                    }
+                    },
+                    pluginCore = pluginCore,
+                    themeInstalled = themeInstalled,
+                    pluginCount = pluginCount,
+                    onPlugins = { stack = stack + SubPage.Plugins }
                 )
             }
         }
@@ -244,25 +302,21 @@ fun AppRoot(activity: MainActivity, store: Store) {
         label = "subpage"
     ) { page ->
         when (page) {
-        SubPage.Theme -> ColorListPage(
-            currentPreset = UiPrefsState.accent.value,
-            customArgb = UiPrefsState.customAccent.value,
-            onPreset = {
-                store.setAccent(it)
-                refresh++
-            },
-            onOpenSeries = { stack = stack + SubPage.ColorFamily(it) },
-            onBack = { stack = stack.dropLast(1) }
-        )
-        is SubPage.ColorFamily -> ColorWheelPage(
-            seriesIndex = page.index,
-            selectedArgb = UiPrefsState.customAccent.value,
+        SubPage.Plugins -> PluginManagerPage(
+            core = pluginCore,
+            store = store,
+            prefs = pluginPrefs,
+            installer = externalInstaller,
             onBack = { stack = stack.dropLast(1) },
-            onPick = { argb, name ->
-                store.setAccentColor(argb, name)
-                refresh++
-                stack = stack.dropLast(1)
-            }
+            onChanged = { refresh++ },
+            onOpenPage = { pageId -> stack = stack + SubPage.PluginPage(pageId) }
+        )
+        is SubPage.PluginPage -> PluginPageHost(
+            core = pluginCore,
+            pageId = page.pageId,
+            arg = page.arg,
+            onClose = { stack = stack.dropLast(1) },
+            onOpen = { pageId, arg -> stack = stack + SubPage.PluginPage(pageId, arg) }
         )
         SubPage.Manage -> ManagePage(
             store = store,
@@ -326,6 +380,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
             onCopy = { activity.copyText(PROJECT_URL) }
         )
         SubPage.SelfTest -> SelfTestPage(
+            store = store,
             onExport = {
                 val p = activity.exportAppLog()
                 activity.toast(if (p != null) "日志已保存：" + p else "导出失败")

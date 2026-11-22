@@ -85,6 +85,8 @@ import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.TimeText
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
+import com.ioo.watchnote.plugin.PluginCardActions
+import com.ioo.watchnote.plugin.PluginCore
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
 
@@ -93,7 +95,7 @@ import kotlin.math.ceil
    ============================================================ */
 
 @Composable
-internal fun NotesPage(store: Store, refresh: Int, fullAnim: Boolean, active: Boolean, onAdd: () -> Unit, onOpen: (String) -> Unit, onChanged: () -> Unit) {
+internal fun NotesPage(store: Store, refresh: Int, fullAnim: Boolean, active: Boolean, onAdd: () -> Unit, onOpen: (String) -> Unit, onChanged: () -> Unit, pluginCore: PluginCore? = null) {
     store.version.intValue
     val notes = store.notesSorted().filter { !it.todo }
     val pending = remember { mutableStateOf<Note?>(null) }
@@ -124,7 +126,8 @@ internal fun NotesPage(store: Store, refresh: Int, fullAnim: Boolean, active: Bo
                         n = n,
                         onClick = { onOpen(n.id) },
                         onChanged = onChanged,
-                        onDelete = { pending.value = n }
+                        onDelete = { pending.value = n },
+                        pluginCore = pluginCore
                     )
                 }
             }
@@ -154,7 +157,8 @@ internal fun NoteCard(
     n: Note,
     onClick: () -> Unit,
     onChanged: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    pluginCore: PluginCore? = null
 ) {
     val hold = rememberHoldProgress()
     Column(
@@ -197,6 +201,11 @@ internal fun NoteCard(
             if (n.audioPath.isNotEmpty()) {
                 Text("♪", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
             }
+            PluginCardActions(
+                core = pluginCore,
+                note = n,
+                modifier = Modifier.padding(start = 2.dp)
+            )
         }
         val body = if (n.text.trim().isEmpty()) "（语音笔记）" else n.text.trim()
         Text(

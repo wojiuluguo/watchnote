@@ -1,0 +1,417 @@
+package com.ioo.watchnote.plugin.external
+
+import android.content.Context
+import com.ioo.watchnote.plugin.Permission
+import com.ioo.watchnote.plugin.PluginCore
+import com.ioo.watchnote.plugin.RegisterResult
+import com.ioo.watchnote.plugin.WristPlugin
+import dalvik.system.DexClassLoader
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+
+/** 已安装的外置插件记录（落盘；启动时按它恢复）。 */
+data class ExternalPluginRecord(
+    val id: String,
+    val name: String,
+    val version: Int,
+    val entryClass: String,
+    val author: String?,
+    val sha256: String,
+    val installedAt: Long,
+    val fileName: String,
+    /** 作者签名公钥指纹；null 表示这个包装的时候没签名。 */
+    val keyFingerprint: String? = null,
+)
+
+/**
+ * 安装前给用户看的清单：名字、版本、作者、要什么权限、多大、指纹、首装还是升级。
+ * 只由 preview() 产生，不落盘、不加载代码。
+ */
+data class ExternalInstallPreview(
+    val id: String,
+    val name: String,
+    val version: Int,
+    val minApi: Int,
+    val author: String?,
+    val description: String?,
+    val permissions: Set<Permission>,
+    val sha256: String,
+    val packageBytes: Long,
+    val installedVersion: Int?,
+    val isUpgrade: Boolean,
+    /** 作者签名公钥指纹；null 表示这个包没签名。 */
+    val keyFingerprint: String? = null,
+)
+
+/** 预览结果：Ready 才允许弹确认；Failed 直接告诉用户为什么装不了。 */
+sealed interface ExternalPreviewResult {
+    data class Ready(val preview: ExternalInstallPreview) : ExternalPreviewResult
+    data class Failed(val reason: String) : ExternalPreviewResult
+}
+
+/** 安装结果：要么装好并给出记录，要么说清哪一步失败。 */
+sealed interface ExternalInstallResult {
+    data class Installed(val record: ExternalPluginRecord) : ExternalInstallResult
+    data class Failed(val reason: String) : ExternalInstallResult
+}
+
+/**
+ * 外置插件加载器（v2.0）。
+ *
+ * 一条安装链路固定为：
+ *   包结构检查 -> 解压到 filesDir/plugins/<id>/<version> -> DexClassLoader 加载
+ *   -> 断言入口类实现 WristPlugin -> 交给 PluginCore.install -> 成功才写安装记录
+ *
+ * 任何一步失败都只返回 Failed，并把半成品目录删干净；
+ * 绝不因为一个坏包影响宿主，也不留下「记录里说有、实际加载不了」的幽灵插件。
+ */
+class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
+
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val root = File(appContext.filesDir, DIR_PLUGINS)
+
+    fun records(): List<ExternalPluginRecord> = readRecords()
+
+    fun record(pluginId: String): ExternalPluginRecord? = readRecords().firstOrNull { it.id == pluginId }
+
+    fun isInstalled(pluginId: String): Boolean = record(pluginId) != null && core.isInstalled(pluginId)
+
+    /**
+     * 装之前先看清楚：只解析包，不落地、不加载代码。
+     * 管理页拿它拼确认弹窗；确认之后才走 installFromFile。
+     */
+    fun preview(file: File): ExternalPreviewResult {
+        val checked = ExternalPackageChecker.inspect(file)
+        if (checked is ExternalPackageResult.Invalid) {
+            return ExternalPreviewResult.Failed("插件包不合法：" + checked.reason)
+        }
+        val pkg = (checked as ExternalPackageResult.Valid).pkg
+        val external = pkg.manifest
+        val manifest = external.manifest
+        val installed = record(manifest.id)
+        val installedVersion = installed?.version
+        val versionProblem = ExternalInstallPolicy.checkVersion(installedVersion, manifest.version)
+        if (versionProblem != null) return ExternalPreviewResult.Failed(versionProblem)
+        val keyFingerprint = (pkg.signature as? ExternalSignatureResult.Valid)?.keyFingerprint
+        val signingProblem = ExternalInstallPolicy.checkSigning(installed?.keyFingerprint, keyFingerprint)
+        if (signingProblem != null) return ExternalPreviewResult.Failed(signingProblem)
+        return ExternalPreviewResult.Ready(
+            ExternalInstallPreview(
+                id = manifest.id,
+                name = manifest.name,
+                version = manifest.version,
+                minApi = manifest.minApi,
+                author = external.author,
+                description = external.description,
+                permissions = manifest.permissions,
+                sha256 = sha256(file),
+                packageBytes = file.length(),
+                installedVersion = installedVersion,
+                isUpgrade = installedVersion != null && manifest.version > installedVersion,
+                keyFingerprint = keyFingerprint,
+            ),
+        )
+    }
+
+    /** 自带示例插件的预览（只给确认弹窗看，不装）。 */
+    fun previewBundledSample(): ExternalPreviewResult {
+        val temp = File(appContext.cacheDir, "bundled-sample-preview.wplugin")
+        return try {
+            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+                temp.outputStream().use { output -> input.copyTo(output) }
+            }
+            preview(temp)
+        } catch (t: Throwable) {
+            ExternalPreviewResult.Failed("读不到内置示例插件：" + (t.message ?: "assets 里没有 " + BUNDLED_SAMPLE))
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** 从文件装（升级同一个 id 时保留插件私有数据）。 */
+    fun installFromFile(file: File): ExternalInstallResult {
+        val checked = ExternalPackageChecker.inspect(file)
+        if (checked is ExternalPackageResult.Invalid) {
+            return ExternalInstallResult.Failed("插件包不合法：" + checked.reason)
+        }
+        val pkg = (checked as ExternalPackageResult.Valid).pkg
+        val external = pkg.manifest
+        val manifest = external.manifest
+        val id = manifest.id
+        val version = manifest.version
+        val installedRecord = record(id)
+        val versionProblem = ExternalInstallPolicy.checkVersion(installedRecord?.version, version)
+        if (versionProblem != null) return ExternalInstallResult.Failed(versionProblem)
+        val keyFingerprint = (pkg.signature as? ExternalSignatureResult.Valid)?.keyFingerprint
+        val signingProblem = ExternalInstallPolicy.checkSigning(installedRecord?.keyFingerprint, keyFingerprint)
+        if (signingProblem != null) return ExternalInstallResult.Failed(signingProblem)
+
+        if (core.isInstalled(id) || record(id) != null) {
+            core.disable(id)
+            deleteRecursively(pluginDir(id))
+        }
+
+        val pluginRoot = pluginDir(id)
+        if (!pluginRoot.mkdirs() && !pluginRoot.isDirectory) {
+            return ExternalInstallResult.Failed("没法创建插件目录：" + pluginRoot.path)
+        }
+        val staging = File(pluginRoot, "staging-" + System.currentTimeMillis())
+        deleteRecursively(staging)
+        if (!staging.mkdirs()) return ExternalInstallResult.Failed("没法创建临时目录")
+
+        try {
+            extract(file, staging)
+            val finalDir = File(pluginRoot, version.toString())
+            deleteRecursively(finalDir)
+            if (!staging.renameTo(finalDir)) {
+                return ExternalInstallResult.Failed("解压目录改名失败（可能有残留下次再试）")
+            }
+            val codeCache = codeCacheDir(id)
+            deleteRecursively(codeCache)
+            codeCache.mkdirs()
+            val plugin = loadPlugin(finalDir, pkg.dexEntries, external.entryClass, codeCache, id)
+            if (plugin == null) {
+                deleteRecursively(pluginDir(id))
+                return ExternalInstallResult.Failed("插件加载失败（看关于→自测工具里的日志）")
+            }
+            when (val installed = core.install(plugin)) {
+                is RegisterResult.Ok -> Unit
+                is RegisterResult.Rejected -> {
+                    deleteRecursively(pluginDir(id))
+                    deleteRecursively(codeCache)
+                    return ExternalInstallResult.Failed("安装被拒绝：" + installed.reason)
+                }
+            }
+            val record = ExternalPluginRecord(
+                id = id,
+                name = manifest.name,
+                version = version,
+                entryClass = external.entryClass,
+                author = external.author,
+                sha256 = sha256(file),
+                installedAt = System.currentTimeMillis(),
+                fileName = file.name,
+                keyFingerprint = keyFingerprint,
+            )
+            writeRecords(readRecords().filter { it.id != id } + record)
+            return ExternalInstallResult.Installed(record)
+        } catch (t: Throwable) {
+            deleteRecursively(staging)
+            deleteRecursively(pluginDir(id))
+            deleteRecursively(codeCacheDir(id))
+            core.disable(id)
+            return ExternalInstallResult.Failed("安装出错：" + (t.message ?: t.javaClass.simpleName))
+        }
+    }
+
+    /** 装 APK 里自带的示例插件（不需要任何文件传输，验证整条加载链路）。 */
+    fun installBundledSample(): ExternalInstallResult {
+        val temp = File(appContext.cacheDir, "bundled-sample.wplugin")
+        return try {
+            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+                temp.outputStream().use { output -> input.copyTo(output) }
+            }
+            installFromFile(temp)
+        } catch (t: Throwable) {
+            ExternalInstallResult.Failed("读不到内置示例插件：" + (t.message ?: "assets 里没有 " + BUNDLED_SAMPLE))
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** 用户可放包的文件夹（把 .wplugin 放进去，再点「从文件夹安装」）。 */
+    fun inboxDir(): File {
+        val base = appContext.getExternalFilesDir(null) ?: appContext.cacheDir
+        val dir = File(base, DIR_INBOX)
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    /** inbox 里现成的 .wplugin，按文件名排序。 */
+    fun inboxFiles(): List<File> = inboxDir()
+        .listFiles { f -> f.isFile && f.name.endsWith(PLUGIN_PACKAGE_EXTENSION) }
+        ?.sortedBy { it.name }
+        ?: emptyList()
+
+    /** 批量安装（管理页确认之后调用）；每个包各自成败，一个失败不耽误后面的。 */
+    fun installFiles(files: List<File>): List<ExternalInstallResult> = files.map { installFromFile(it) }
+
+    /** 扫描 inbox 并逐个安装（旧入口，内部转调 installFiles）。 */
+    fun installFromInbox(): List<ExternalInstallResult> = installFiles(inboxFiles())
+
+    /** 真卸载：插件代码、数据、目录、记录一起清。 */
+    fun uninstall(pluginId: String): Boolean {
+        core.uninstall(pluginId)
+        deleteRecursively(pluginDir(pluginId))
+        deleteRecursively(codeCacheDir(pluginId))
+        writeRecords(readRecords().filter { it.id != pluginId })
+        return true
+    }
+
+    /** App 启动时按记录恢复外置插件。返回成功恢复的个数。 */
+    fun restoreAll(): Int {
+        var restored = 0
+        val kept = ArrayList<ExternalPluginRecord>()
+        for (record in readRecords()) {
+            if (core.isInstalled(record.id)) {
+                kept.add(record)
+                continue
+            }
+            val dir = File(pluginDir(record.id), record.version.toString())
+            val dexEntries = dexEntriesIn(dir)
+            if (!dir.isDirectory || dexEntries.isEmpty()) {
+                deleteRecursively(pluginDir(record.id))
+                continue
+            }
+            val codeCache = codeCacheDir(record.id)
+            deleteRecursively(codeCache)
+            codeCache.mkdirs()
+            val plugin = loadPlugin(dir, dexEntries, record.entryClass, codeCache, record.id)
+            if (plugin == null || core.install(plugin) is RegisterResult.Rejected) {
+                deleteRecursively(pluginDir(record.id))
+                deleteRecursively(codeCache)
+                continue
+            }
+            restored++
+            kept.add(record)
+        }
+        writeRecords(kept)
+        return restored
+    }
+
+    private fun extract(packageFile: File, target: File) {
+        ZipFile(packageFile).use { zip ->
+            for (entry in zip.entries()) {
+                if (entry.isDirectory) continue
+                val name = entry.name.replace('\\', '/')
+                val out = File(target, name)
+                val targetRoot = target.canonicalFile
+                val canonical = out.canonicalFile
+                if (canonical.path != targetRoot.path &&
+                    !canonical.path.startsWith(targetRoot.path + File.separator)
+                ) {
+                    throw IllegalStateException("包内路径越界：" + name)
+                }
+                canonical.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input ->
+                    canonical.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
+    }
+
+    private fun loadPlugin(
+        dir: File,
+        dexEntries: List<String>,
+        entryClass: String,
+        codeCache: File,
+        expectedId: String,
+    ): WristPlugin? {
+        return try {
+            val dexPath = dexEntries.joinToString(File.pathSeparator) { File(dir, it).absolutePath }
+            val loader = DexClassLoader(dexPath, codeCache.absolutePath, null, appContext.classLoader)
+            val cls = Class.forName(entryClass, true, loader)
+            if (!WristPlugin::class.java.isAssignableFrom(cls)) {
+                return null
+            }
+            val ctor = cls.getDeclaredConstructor()
+            ctor.isAccessible = true
+            val plugin = ctor.newInstance() as WristPlugin
+            if (plugin.manifest.id != expectedId) return null
+            plugin
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    private fun dexEntriesIn(dir: File): List<String> {
+        if (!dir.isDirectory) return emptyList()
+        val dexName = Regex("classes[0-9]*\\.dex")
+        return (dir.listFiles() ?: emptyArray()).filter { it.isFile && dexName.matches(it.name) }
+            .map { it.name }
+            .sorted()
+    }
+
+    private fun pluginDir(pluginId: String): File = File(root, pluginId)
+
+    private fun codeCacheDir(pluginId: String): File = File(appContext.codeCacheDir, "plugin-dex/" + pluginId)
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                digest.update(buffer, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { String.format("%02x", it) }
+    }
+
+    private fun readRecords(): List<ExternalPluginRecord> {
+        val raw = prefs.getString(KEY_RECORDS, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            val list = ArrayList<ExternalPluginRecord>()
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val id = item.optString("id", "")
+                if (id.isEmpty()) continue
+                list.add(
+                    ExternalPluginRecord(
+                        id = id,
+                        name = item.optString("name", id),
+                        version = item.optInt("version", 1),
+                        entryClass = item.optString("entryClass", ""),
+                        author = item.optString("author", "").takeIf { it.isNotEmpty() },
+                        sha256 = item.optString("sha256", ""),
+                        installedAt = item.optLong("installedAt", 0L),
+                        fileName = item.optString("fileName", ""),
+                        keyFingerprint = item.optString("keyFingerprint", "").takeIf { it.isNotEmpty() },
+                    ),
+                )
+            }
+            list
+        } catch (t: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun writeRecords(records: List<ExternalPluginRecord>) {
+        val array = JSONArray()
+        for (record in records) {
+            val item = JSONObject()
+            item.put("id", record.id)
+            item.put("name", record.name)
+            item.put("version", record.version)
+            item.put("entryClass", record.entryClass)
+            item.put("author", record.author ?: "")
+            item.put("sha256", record.sha256)
+            item.put("installedAt", record.installedAt)
+            item.put("fileName", record.fileName)
+            item.put("keyFingerprint", record.keyFingerprint ?: "")
+            array.put(item)
+        }
+        prefs.edit().putString(KEY_RECORDS, array.toString()).apply()
+    }
+
+    private fun deleteRecursively(file: File) {
+        if (!file.exists()) return
+        val children = file.listFiles()
+        if (children != null) for (child in children) deleteRecursively(child)
+        file.delete()
+    }
+
+    companion object {
+        const val BUNDLED_SAMPLE = "plugins/hello.wplugin"
+        private const val PREFS_NAME = "watchnote_external_plugins"
+        private const val KEY_RECORDS = "records"
+        private const val DIR_PLUGINS = "plugins"
+        private const val DIR_INBOX = "plugins-inbox"
+    }
+}

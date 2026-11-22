@@ -337,17 +337,22 @@ internal fun SmallBackButton(state: TransformingLazyColumnState, onBack: () -> U
 }
 
 /**
- * 主页面底部的小圆按钮（＋ / ✎ 等），规则与 SmallBackButton 相同：
- * 所有列表页常显，不用滑到底找大按钮；大按钮升起时它自己飞下去消失。
+ * 官方底部大返回键（EdgeButton）当前的升起进度。
+ *
+ * 0 = 大按钮收在屏幕下面（页面还没滚到底）→ 底部那颗小圆按钮常亮；
+ * 1 = 大按钮完全升起 → 小圆按钮应该已经飞下去消失。
+ *
+ * 判定值与官方 ScreenScaffold 完全一致：lastItemOffset = 视口高度 - 最后一个 item 的底边
+ *（TransformingLazyColumnStateScrollInfoProvider.getLastItemOffset 的算法）。
+ * 小圆按钮 / 子页面左下角槽位共用这一份，避免两处各算一遍算出不一样的结果。
  */
 @Composable
-internal fun SmallEdgeIconButton(state: TransformingLazyColumnState, icon: String, onClick: () -> Unit) {
+internal fun rememberEdgeReveal(state: TransformingLazyColumnState): Float {
     val density = LocalDensity.current
     // ScreenScaffoldDefaults.EdgeButtonSpacing(16dp) - EdgeButtonMinSpacing(3dp)
     val correctionPx = with(density) { 13.dp.toPx() }
     // EdgeButton Small 满高 56dp + 上下各 3dp padding
     val fullHeightPx = with(density) { 62.dp.toPx() }
-    val travelPx = with(density) { 130.dp.toPx() }
     val reveal by remember(state) {
         derivedStateOf {
             val info = state.layoutInfo
@@ -358,6 +363,17 @@ internal fun SmallEdgeIconButton(state: TransformingLazyColumnState, icon: Strin
             } else 0f
         }
     }
+    return reveal
+}
+
+/**
+ * 主页面 / 列表型子页面底部的小圆按钮（＋ / ✎ / ← 等），规则：
+ * 常显在正下方，不用滑到底找大按钮；大按钮升起时它自己飞下去消失。
+ */
+@Composable
+internal fun SmallEdgeIconButton(state: TransformingLazyColumnState, icon: String, onClick: () -> Unit) {
+    val reveal = rememberEdgeReveal(state)
+    val travelPx = with(LocalDensity.current) { 130.dp.toPx() }
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter
@@ -380,12 +396,40 @@ internal fun SmallEdgeIconButton(state: TransformingLazyColumnState, icon: Strin
     }
 }
 
+/**
+ * 子页面左下角的附加槽位（插件 PAGE_BOTTOM 按钮走这里）。
+ *
+ * 位置和规则都跟上面那颗小圆按钮同一套：底边对齐 4dp、左边 30dp；
+ * 官方大返回键升起时它跟着一起向下飞出并淡出 —— 不允许出现「大返回键旁边并排一颗同色小圆钮」
+ * 那种看起来像返回键碎了、多出来一块的画面。
+ */
+@Composable
+internal fun BoxScope.SmallBottomStartSlot(
+    state: TransformingLazyColumnState,
+    content: @Composable () -> Unit
+) {
+    val reveal = rememberEdgeReveal(state)
+    val travelPx = with(LocalDensity.current) { 130.dp.toPx() }
+    Box(
+        modifier = Modifier
+            .align(Alignment.BottomStart)
+            .padding(start = 30.dp, bottom = 4.dp)
+            .graphicsLayer {
+                alpha = (1f - reveal * 2.2f).coerceIn(0f, 1f)
+                translationY = reveal * travelPx
+            }
+    ) {
+        content()
+    }
+}
+
 /** 子页面里“列表型”页面：和主页面一样有鱼眼/满血动画；性能模式自动关掉。 */
 @Composable
 internal fun SubPageListFrame(
     onBack: () -> Unit,
     fishEye: Boolean = UiPrefsState.animMode.value == 0,
     smallBack: Boolean = true,
+    bottomStart: (@Composable () -> Unit)? = null,
     content: TransformingLazyColumnScope.() -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -395,6 +439,8 @@ internal fun SubPageListFrame(
         }
         // 底部小返回键所有列表型子页面都给；大按钮升起时 SmallBackButton 自己飞下去
         if (smallBack) SmallBackButton(state = state, onBack = onBack)
+        // 左下角附加槽位跟小圆按钮同一套升降规则
+        if (bottomStart != null) SmallBottomStartSlot(state = state) { bottomStart() }
     }
 }
 
@@ -445,10 +491,7 @@ internal fun SubPageFrame(
             }
         }
         if (smallBack) SmallBackButton(state = state, onBack = onBack)
-        if (bottomStart != null) {
-            Box(Modifier.align(Alignment.BottomStart).padding(start = 30.dp, bottom = 30.dp)) {
-                bottomStart()
-            }
-        }
+        // 左下角附加槽位跟小圆按钮同一套升降规则（4.1.16 起；以前是死叠在 30dp 上，会跟大返回键并排）
+        if (bottomStart != null) SmallBottomStartSlot(state = state) { bottomStart() }
     }
 }

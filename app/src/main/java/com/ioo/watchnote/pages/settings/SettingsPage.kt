@@ -1,5 +1,8 @@
 package com.ioo.watchnote
 
+import com.ioo.watchnote.plugin.ButtonSlot
+import com.ioo.watchnote.plugin.PluginCore
+import com.ioo.watchnote.plugin.PluginSettingsRow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -106,7 +109,11 @@ internal fun SettingsPage(
     onShare: () -> Unit,
     onClear: () -> Unit,
     onTheme: () -> Unit,
-    onAbout: () -> Unit
+    onAbout: () -> Unit,
+    pluginCore: PluginCore? = null,
+    themeInstalled: Boolean = true,
+    pluginCount: Int = 0,
+    onPlugins: () -> Unit = {}
 ) {
     WearListPage(edgeIcon = "↩", onEdge = onBackToNotes, fishEye = UiPrefsState.animMode.value == 0, active = active) {
         item {
@@ -123,7 +130,11 @@ internal fun SettingsPage(
         item { Fish { SettingPill("↓", "导出备份", onClick = onExport) } }
         item { Fish { SettingPill("↑", "从备份恢复", onClick = onImport) } }
         item { Fish { SettingPill("⇪", "发到手机", onClick = onShare) } }
-        item { Fish { SettingPill("◐", "更换主题颜色", onClick = onTheme) } }
+        // 主题颜色插件被关掉时，这一行跟着消失；从「插件」页可以再开回来
+        if (themeInstalled) {
+            item { Fish { SettingPill("◐", "更换主题颜色", onClick = onTheme) } }
+        }
+        item { Fish { SettingPill("⌘", "插件", trailing = pluginCount.toString() + " 个", onClick = onPlugins) } }
         item { Fish { SettingPill("◔", "动画效果", trailing = if (UiPrefsState.animMode.value == 0) "满血" else "性能", onClick = onAnimMode) } }
         item {
             LaunchedEffect(UiPrefsState.showTopTime.value) {
@@ -134,5 +145,12 @@ internal fun SettingsPage(
         item { Fish { SettingPill("≈", "震动反馈", trailing = if (UiPrefsState.haptics.value) "开" else "关", onClick = { store.setHaptics(!UiPrefsState.haptics.value) }) } }
         item { Fish { SettingPill("✕", "清空全部数据", danger = true, onClick = onClear) } }
         item { Fish { SettingPill("i", "关于", onClick = onAbout) } }
+        // 插件贡献的设置行：插件注册 SETTINGS_ROW 按钮，宿主负责让它们长成和其它行一样
+        val cores = pluginCore
+        if (cores != null) {
+            cores.buttonsOf(ButtonSlot.SETTINGS_ROW).forEach { button ->
+                item { Fish { PluginSettingsRow(cores, button) } }
+            }
+        }
     }
 }
