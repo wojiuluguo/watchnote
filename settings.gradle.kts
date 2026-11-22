@@ -18,5 +18,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "WristNoteV4"
+rootProject.name = "WristNoteV5"
 include(":app")

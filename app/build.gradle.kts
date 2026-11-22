@@ -4,6 +4,12 @@ plugins {
 }
 
 android {
+    // 7G 内存机器上 lint 分析会吃光 metaspace 把构建搞崩；lint 只是静态检查，不影响产物，release 直接关掉
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     namespace = "com.ioo.watchnote"
     compileSdk = 37
 
@@ -11,8 +17,8 @@ android {
         applicationId = "com.ioo.watchnote"
         minSdk = 26
         targetSdk = 36
-        versionCode = 77
-        versionName = "Beta11"
+        versionCode = 108
+        versionName = "4.0.20"
     }
 
     compileOptions {

@@ -19,6 +19,10 @@ object UiPrefsState {
     val accent = mutableStateOf(0)
     val animMode = mutableStateOf(0)
     val haptics = mutableStateOf(true)
+
+    /** 自定义强调色（ARGB；0 = 用预设色板）。customAccentName 显示在主题页 / 更多颜色里。 */
+    val customAccent = mutableStateOf(0)
+    var customAccentName by mutableStateOf("")
 }
 
 /** SnapshotStateList 上用 filter+clear+addAll 做删除，避免迭代器删除的兼容问题。 */
@@ -34,6 +38,9 @@ class Note(
     tag: String = "随手记",
     marked: Boolean = false,
     done: Boolean = false,
+    todo: Boolean = false,
+    dueAt: Long = 0,
+    endAt: Long = 0,
     audioPath: String = "",
     audioDur: Long = 0,
     createdAt: Long = 0,
@@ -44,6 +51,9 @@ class Note(
     var tag by mutableStateOf(tag)
     var marked by mutableStateOf(marked)
     var done by mutableStateOf(done)
+    var todo by mutableStateOf(todo)
+    var dueAt by mutableStateOf(dueAt)
+    var endAt by mutableStateOf(endAt)
     var audioPath by mutableStateOf(audioPath)
     var audioDur by mutableStateOf(audioDur)
     var createdAt by mutableStateOf(createdAt)
@@ -147,18 +157,19 @@ class Store(ctx: Context) {
             return if (i >= 0) TYPE_LABELS[i] else "其他"
         }
 
+        /* 夜墨语义色：朱砂=上课 / 琥珀=吃饭 / 绿=休息 / 灰=其他 */
         fun typeColor(type: String): androidx.compose.ui.graphics.Color = when (type) {
-            "class" -> androidx.compose.ui.graphics.Color(0xFFC8B6FF)
-            "meal" -> androidx.compose.ui.graphics.Color(0xFFFFB2C7)
-            "rest" -> androidx.compose.ui.graphics.Color(0xFFCAC2DC)
-            else -> androidx.compose.ui.graphics.Color(0xFFCBC3CE)
+            "class" -> androidx.compose.ui.graphics.Color(0xFFFF6A4D)
+            "meal" -> androidx.compose.ui.graphics.Color(0xFFFFC46B)
+            "rest" -> androidx.compose.ui.graphics.Color(0xFF7BD88F)
+            else -> androidx.compose.ui.graphics.Color(0xFFA8A29A)
         }
 
         fun typeBg(type: String): androidx.compose.ui.graphics.Color = when (type) {
-            "class" -> androidx.compose.ui.graphics.Color(0xFF493575)
-            "meal" -> androidx.compose.ui.graphics.Color(0xFF6D3348)
-            "rest" -> androidx.compose.ui.graphics.Color(0xFF484451)
-            else -> androidx.compose.ui.graphics.Color(0xFF2C292E)
+            "class" -> androidx.compose.ui.graphics.Color(0xFF3A1C14)
+            "meal" -> androidx.compose.ui.graphics.Color(0xFF382C16)
+            "rest" -> androidx.compose.ui.graphics.Color(0xFF17301F)
+            else -> androidx.compose.ui.graphics.Color(0xFF26262A)
         }
 
         fun nowMins(): Double {
@@ -166,7 +177,7 @@ class Store(ctx: Context) {
             return c.get(Calendar.HOUR_OF_DAY) * 60.0 + c.get(Calendar.MINUTE) + c.get(Calendar.SECOND) / 60.0
         }
 
-        fun todayIndex(): Int = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1
+        fun todayIndex(): Int = java.time.LocalDate.now().dayOfWeek.value % 7
 
         fun fmtDate(ms: Long = System.currentTimeMillis()): String {
             val d = Date(ms)
@@ -180,14 +191,68 @@ class Store(ctx: Context) {
 
         fun fmtDayEpoch(epochDay: Long): String = SimpleDateFormat("M/d", Locale.CHINA).format(Date(epochDay * 86_400_000L))
         fun fmtClock(ms: Long = System.currentTimeMillis()): String = SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(ms))
+
+        /** 今天 0 点。 */
+        fun startOfToday(): Long {
+            val c = Calendar.getInstance()
+            c.set(Calendar.HOUR_OF_DAY, 0)
+            c.set(Calendar.MINUTE, 0)
+            c.set(Calendar.SECOND, 0)
+            c.set(Calendar.MILLISECOND, 0)
+            return c.timeInMillis
+        }
+
+        fun hhmm(ms: Long): String = SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(ms))
+
+        fun fmtDay(ms: Long): String = SimpleDateFormat("M/d", Locale.CHINA).format(Date(ms))
+
+        /** 「12/4 20:00-21:00」；同日只写一次日期。 */
+        fun rangeLabel(start: Long, end: Long): String {
+            if (start <= 0L) return ""
+            if (end <= start) return fmtDay(start) + " " + hhmm(start)
+            val sameDay = Calendar.getInstance().apply { timeInMillis = start }.let { a ->
+                val b = Calendar.getInstance().apply { timeInMillis = end }
+                a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+            }
+            return if (sameDay) fmtDay(start) + " " + hhmm(start) + "-" + hhmm(end)
+            else fmtDay(start) + " " + hhmm(start) + " - " + fmtDay(end) + " " + hhmm(end)
+        }
+
+        fun durationLabel(start: Long, end: Long): String {
+            val mins = (((end - start) / 60_000L).toInt()).coerceAtLeast(0)
+            val h = mins / 60
+            val m = mins % 60
+            return when {
+                h > 0 && m > 0 -> h.toString() + " 小时 " + m + " 分"
+                h > 0 -> h.toString() + " 小时"
+                else -> m.toString() + " 分钟"
+            }
+        }
     }
 
     fun getAccent(): Int = UiPrefsState.accent.value
 
     fun setAccent(value: Int) {
         UiPrefsState.accent.value = value
-        prefs.edit().putInt("accent", value).apply()
+        UiPrefsState.customAccent.value = 0
+        UiPrefsState.customAccentName = ""
+        prefs.edit()
+            .putInt("accent", value)
+            .putInt("accent_color", 0)
+            .putString("accent_name", "")
+            .apply()
         EventLog.add("setting", "accent=" + value)
+    }
+
+    /** 用「更多颜色」里挑的中国传统色当强调色（argb = 0 表示清掉自定义、回到预设）。 */
+    fun setAccentColor(argb: Int, name: String) {
+        UiPrefsState.customAccent.value = argb
+        UiPrefsState.customAccentName = name
+        prefs.edit()
+            .putInt("accent_color", argb)
+            .putString("accent_name", name)
+            .apply()
+        EventLog.add("setting", "accentColor=" + Integer.toHexString(argb) + " " + name)
     }
 
     fun getHaptics(): Boolean = UiPrefsState.haptics.value
@@ -217,185 +282,216 @@ class Store(ctx: Context) {
         load()
         UiPrefsState.showTopTime.value = prefs.getBoolean("show_top_time", false)
         UiPrefsState.accent.value = prefs.getInt("accent", 0)
+        UiPrefsState.customAccent.value = prefs.getInt("accent_color", 0)
+        UiPrefsState.customAccentName = prefs.getString("accent_name", "") ?: ""
         UiPrefsState.animMode.value = prefs.getInt("anim_mode", 0)
         UiPrefsState.haptics.value = prefs.getBoolean("haptics", true)
-        // 修复旧数据里的空 id，并写回，避免重复 key 闪退
-        save()
     }
 
-    private fun load() {
-        notes.clear()
-        slots.clear()
-        val raw = prefs.getString("data_json", null)
-        if (raw != null) {
-            try {
-                val root = JSONObject(raw)
-                val na = root.optJSONArray("notes")
-                if (na != null) {
-                    for (i in 0 until na.length()) {
-                        val o = na.getJSONObject(i)
-                        notes.add(
-                            Note(
-                                id = o.optString("id", uid()),
-                                text = o.optString("text", ""),
-                                tag = o.optString("tag", "随手记"),
-                                marked = o.optBoolean("marked", false),
-                                done = o.optBoolean("done", false),
-                                audioPath = o.optString("audioPath", ""),
-                                audioDur = o.optLong("audioDur", 0),
-                                createdAt = o.optLong("createdAt", System.currentTimeMillis()),
-                                updatedAt = o.optLong("updatedAt", System.currentTimeMillis())
-                            )
-                        )
-                    }
-                }
-                val sa = root.optJSONArray("slots")
-                if (sa != null) {
-                    for (i in 0 until sa.length()) {
-                        val o = sa.getJSONObject(i)
-                        val s = Slot(
-                            id = o.optString("id", "").ifBlank { uid() },
-                            name = o.optString("name", "未命名"),
-                            type = o.optString("type", "class"),
-                            start = o.optString("start", "08:00"),
-                            end = o.optString("end", "08:45")
-                        )
-                        val da = o.optJSONArray("days")
-                        if (da != null) for (j in 0 until da.length()) {
-                            val d = da.optInt(j, -1)
-                            if (d in 0..6 && !s.days.contains(d)) s.days.add(d)
-                        }
-                        slots.add(s)
-                    }
-                }
-                val ga = root.optJSONArray("groups")
-                if (ga != null) {
-                    for (i in 0 until ga.length()) {
-                        val o = ga.getJSONObject(i)
-                        val g = TimeGroup(
-                            id = o.optString("id", "").ifBlank { uid() },
-                            name = o.optString("name", "时间组")
-                        )
-                        val ia = o.optJSONArray("items")
-                        if (ia != null) for (j in 0 until ia.length()) {
-                            val io = ia.getJSONObject(j)
-                            g.items.add(
-                                GroupItem(
-                                    start = io.optString("start", "08:00"),
-                                    end = io.optString("end", "08:45"),
-                                    label = io.optString("label", "")
-                                )
-                            )
-                        }
-                        groups.add(g)
-                    }
-                }
-                val spa = root.optJSONArray("specials")
-                if (spa != null) {
-                    for (i in 0 until spa.length()) {
-                        val o = spa.getJSONObject(i)
-                        val r = SpecialRule(
-                            id = o.optString("id", "").ifBlank { uid() },
-                            weekday = o.optInt("weekday", 0),
-                            startEpochDay = o.optLong("start", 0L),
-                            weeks = o.optInt("weeks", 1),
-                            closed = o.optBoolean("closed", false)
-                        )
-                        val ia = o.optJSONArray("items")
-                        if (ia != null) for (j in 0 until ia.length()) {
-                            val io = ia.getJSONObject(j)
-                            r.items.add(
-                                GroupItem(
-                                    start = io.optString("start", "08:00"),
-                                    end = io.optString("end", "08:45"),
-                                    label = io.optString("label", "")
-                                )
-                            )
-                        }
-                        specials.add(r)
-                    }
-                }
-            } catch (e: Exception) {
-                notes.clear()
-                slots.clear()
+    /* ---------------- 持久化：一处序列化，保存 / 导出 / 导入共用 ---------------- */
+
+    private fun noteJson(n: Note): JSONObject = JSONObject().also { o ->
+        o.put("id", n.id)
+        o.put("text", n.text)
+        o.put("tag", n.tag)
+        o.put("marked", n.marked)
+        o.put("done", n.done)
+        o.put("todo", n.todo)
+        o.put("dueAt", n.dueAt)
+        o.put("endAt", n.endAt)
+        o.put("audioPath", n.audioPath)
+        o.put("audioDur", n.audioDur)
+        o.put("createdAt", n.createdAt)
+        o.put("updatedAt", n.updatedAt)
+    }
+
+    private fun slotJson(s: Slot): JSONObject = JSONObject().also { o ->
+        o.put("id", s.id); o.put("name", s.name); o.put("type", s.type)
+        o.put("start", s.start); o.put("end", s.end)
+        val da = JSONArray(); s.days.forEach { da.put(it) }
+        o.put("days", da)
+    }
+
+    private fun itemsJson(items: List<GroupItem>): JSONArray = JSONArray().also { ia ->
+        items.forEach { item ->
+            ia.put(JSONObject().also { io ->
+                io.put("start", item.start)
+                io.put("end", item.end)
+                io.put("label", item.label)
+            })
+        }
+    }
+
+    private fun groupJson(g: TimeGroup): JSONObject = JSONObject().also { o ->
+        o.put("id", g.id)
+        o.put("name", g.name)
+        o.put("items", itemsJson(g.items))
+    }
+
+    private fun specialJson(r: SpecialRule): JSONObject = JSONObject().also { o ->
+        o.put("id", r.id)
+        o.put("weekday", r.weekday)
+        o.put("start", r.startEpochDay)
+        o.put("weeks", r.weeks)
+        o.put("closed", r.closed)
+        o.put("items", itemsJson(r.items))
+    }
+
+    /** 当前全部数据（保存与导出一致，导入能原样还原）。 */
+    private fun snapshot(): JSONObject = JSONObject().also { root ->
+        root.put("schema", 2)
+        root.put("notes", JSONArray().also { a -> notes.forEach { a.put(noteJson(it)) } })
+        root.put("slots", JSONArray().also { a -> slots.forEach { a.put(slotJson(it)) } })
+        root.put("groups", JSONArray().also { a -> groups.forEach { a.put(groupJson(it)) } })
+        root.put("specials", JSONArray().also { a -> specials.forEach { a.put(specialJson(it)) } })
+    }
+
+    private fun noteFrom(o: JSONObject): Note = Note(
+        id = o.optString("id", "").ifBlank { uid() },
+        text = o.optString("text", ""),
+        tag = o.optString("tag", "随手记"),
+        marked = o.optBoolean("marked", false),
+        done = o.optBoolean("done", false),
+        todo = o.optBoolean("todo", o.optLong("dueAt", 0L) > 0L),
+        dueAt = o.optLong("dueAt", 0L),
+        endAt = o.optLong("endAt", 0L),
+        audioPath = o.optString("audioPath", ""),
+        audioDur = o.optLong("audioDur", 0L),
+        createdAt = o.optLong("createdAt", System.currentTimeMillis()),
+        updatedAt = o.optLong("updatedAt", System.currentTimeMillis())
+    )
+
+    private fun slotFrom(o: JSONObject): Slot {
+        val s = Slot(
+            id = o.optString("id", "").ifBlank { uid() },
+            name = o.optString("name", "未命名"),
+            type = o.optString("type", "class"),
+            start = o.optString("start", "08:00"),
+            end = o.optString("end", "08:45")
+        )
+        val da = o.optJSONArray("days")
+        if (da != null) for (j in 0 until da.length()) {
+            val d = da.optInt(j, -1)
+            if (d in 0..6 && !s.days.contains(d)) s.days.add(d)
+        }
+        return s
+    }
+
+    private fun itemsFrom(o: JSONObject): List<GroupItem> {
+        val out = ArrayList<GroupItem>()
+        val ia = o.optJSONArray("items") ?: return out
+        for (j in 0 until ia.length()) {
+            val io = ia.optJSONObject(j) ?: continue
+            out.add(GroupItem(io.optString("start", "08:00"), io.optString("end", "08:45"), io.optString("label", "")))
+        }
+        return out
+    }
+
+    /** 把 JSON 解析进临时列表；失败就抛异常，调用方保留旧数据。 */
+    private fun collect(
+        root: JSONObject,
+        outNotes: MutableList<Note>,
+        outSlots: MutableList<Slot>,
+        outGroups: MutableList<TimeGroup>,
+        outSpecials: MutableList<SpecialRule>
+    ) {
+        root.optJSONArray("notes")?.let { na ->
+            for (i in 0 until na.length()) {
+                val o = na.optJSONObject(i) ?: continue
+                outNotes.add(noteFrom(o))
             }
         }
-        if (slots.isEmpty()) resetSchedule(saveNow = false)
+        root.optJSONArray("slots")?.let { sa ->
+            for (i in 0 until sa.length()) {
+                val o = sa.optJSONObject(i) ?: continue
+                outSlots.add(slotFrom(o))
+            }
+        }
+        root.optJSONArray("groups")?.let { ga ->
+            for (i in 0 until ga.length()) {
+                val o = ga.optJSONObject(i) ?: continue
+                outGroups.add(
+                    TimeGroup(
+                        id = o.optString("id", "").ifBlank { uid() },
+                        name = o.optString("name", "时间组"),
+                        items = itemsFrom(o)
+                    )
+                )
+            }
+        }
+        root.optJSONArray("specials")?.let { spa ->
+            for (i in 0 until spa.length()) {
+                val o = spa.optJSONObject(i) ?: continue
+                outSpecials.add(
+                    SpecialRule(
+                        id = o.optString("id", "").ifBlank { uid() },
+                        weekday = o.optInt("weekday", 0),
+                        startEpochDay = o.optLong("start", 0L),
+                        weeks = o.optInt("weeks", 1),
+                        closed = o.optBoolean("closed", false),
+                        items = itemsFrom(o)
+                    )
+                )
+            }
+        }
+        // 空 id / 重复 id 一律换新，避免 LazyList key 冲突和「点第 2 条打开第 1 条」
+        val seen = HashSet<String>()
+        outNotes.forEach { if (!seen.add(it.id)) it.id = uid() }
+        outSlots.forEach { if (!seen.add(it.id)) it.id = uid() }
+        outGroups.forEach { if (!seen.add(it.id)) it.id = uid() }
+        outSpecials.forEach { if (!seen.add(it.id)) it.id = uid() }
+    }
+
+    private fun applyIn(
+        newNotes: List<Note>,
+        newSlots: List<Slot>,
+        newGroups: List<TimeGroup>,
+        newSpecials: List<SpecialRule>
+    ) {
+        notes.clear(); notes.addAll(newNotes)
+        slots.clear(); slots.addAll(newSlots)
+        groups.clear(); groups.addAll(newGroups)
+        specials.clear(); specials.addAll(newSpecials)
+    }
+
+    /**
+     * 读盘：先解析到临时列表，成功才替换。
+     * 坏 JSON 只备份原文（data_json_broken_<时间>）并保留当前数据，绝不清库。
+     */
+    private fun load() {
+        val raw = prefs.getString("data_json", null)
+        if (raw == null) {
+            resetSchedule(saveNow = false)
+            save()
+            return
+        }
+        val n = ArrayList<Note>()
+        val s = ArrayList<Slot>()
+        val g = ArrayList<TimeGroup>()
+        val sp = ArrayList<SpecialRule>()
+        try {
+            collect(JSONObject(raw), n, s, g, sp)
+        } catch (e: Exception) {
+            prefs.edit().putString("data_json_broken_" + System.currentTimeMillis(), raw).apply()
+            EventLog.add("store", "load fail: " + e)
+            return
+        }
+        if (s.isEmpty()) {
+            resetSchedule(saveNow = false)
+            s.addAll(slots)
+        }
+        applyIn(n, s, g, sp)
         save()
     }
 
     fun save() {
         try {
-            val root = JSONObject()
-            val na = JSONArray()
-            notes.forEach { n ->
-                val o = JSONObject()
-                o.put("id", n.id)
-                o.put("text", n.text)
-                o.put("tag", n.tag)
-                o.put("marked", n.marked)
-                o.put("done", n.done)
-                o.put("audioPath", n.audioPath)
-                o.put("audioDur", n.audioDur)
-                o.put("createdAt", n.createdAt)
-                o.put("updatedAt", n.updatedAt)
-                na.put(o)
-            }
-            val sa = JSONArray()
-            slots.forEach { s ->
-                val o = JSONObject()
-                o.put("id", s.id)
-                o.put("name", s.name)
-                o.put("type", s.type)
-                o.put("start", s.start)
-                o.put("end", s.end)
-                val da = JSONArray()
-                s.days.forEach { da.put(it) }
-                o.put("days", da)
-                sa.put(o)
-            }
-            val ga = JSONArray()
-            groups.forEach { g ->
-                val o = JSONObject()
-                o.put("id", g.id)
-                o.put("name", g.name)
-                val ia = JSONArray()
-                g.items.forEach { item ->
-                    val io = JSONObject()
-                    io.put("start", item.start)
-                    io.put("end", item.end)
-                    io.put("label", item.label)
-                    ia.put(io)
-                }
-                o.put("items", ia)
-                ga.put(o)
-            }
-            val spa = JSONArray()
-            specials.forEach { r ->
-                val o = JSONObject()
-                o.put("id", r.id)
-                o.put("weekday", r.weekday)
-                o.put("start", r.startEpochDay)
-                o.put("weeks", r.weeks)
-                o.put("closed", r.closed)
-                val ia = JSONArray()
-                r.items.forEach { item ->
-                    val io = JSONObject()
-                    io.put("start", item.start)
-                    io.put("end", item.end)
-                    io.put("label", item.label)
-                    ia.put(io)
-                }
-                o.put("items", ia)
-                spa.put(o)
-            }
-            root.put("notes", na)
-            root.put("slots", sa)
-            root.put("groups", ga)
-            root.put("specials", spa)
-            prefs.edit().putString("data_json", root.toString()).apply()
+            val json = snapshot().toString()
+            if (json == prefs.getString("data_json", null)) return
+            prefs.edit().putString("data_json", json).apply()
             version.intValue = version.intValue + 1
         } catch (e: Exception) {
+            EventLog.add("store", "save fail: " + e)
         }
     }
 
@@ -409,9 +505,10 @@ class Store(ctx: Context) {
         if (draft.id.isNotEmpty()) {
             target = getNote(draft.id) ?: return null
         } else {
-            val hasContent = draft.text.trim().isNotEmpty() || draft.audioPath.isNotEmpty()
+            val hasContent = draft.text.trim().isNotEmpty() || draft.audioPath.isNotEmpty() || draft.todo
             if (!hasContent) return null
             draft.id = uid()
+            if (draft.createdAt <= 0L) draft.createdAt = now
             notes.add(draft)
             target = draft
         }
@@ -419,6 +516,9 @@ class Store(ctx: Context) {
         target.tag = draft.tag
         target.marked = draft.marked
         target.done = draft.done
+        target.todo = draft.todo
+        target.dueAt = draft.dueAt
+        target.endAt = draft.endAt
         target.audioPath = draft.audioPath
         target.audioDur = draft.audioDur
         target.updatedAt = now
@@ -442,6 +542,18 @@ class Store(ctx: Context) {
     fun toggleDone(id: String) {
         getNote(id)?.let { it.done = !it.done; save() }
     }
+
+    /** 办事：没办完的在前，再按开始时间，没时间的排最后。 */
+    fun todoNotes(): List<Note> = notes.filter { it.todo }.sortedWith(
+        compareBy<Note> { it.done }.thenBy { if (it.dueAt > 0) it.dueAt else Long.MAX_VALUE }.thenByDescending { it.createdAt }
+    )
+
+    fun countTodo(): Int = notes.count { it.todo && !it.done }
+
+    /** 今天的下一件事（给首页/角标用）：没办完、有开始时间、结束时间还没过。 */
+    fun nextTodo(nowMs: Long = System.currentTimeMillis()): Note? = notes
+        .filter { it.todo && !it.done && it.dueAt > nowMs }
+        .minByOrNull { it.dueAt }
 
     fun groupsSorted(): List<TimeGroup> = groups.sortedBy { it.name }
 
@@ -493,18 +605,13 @@ class Store(ctx: Context) {
         save()
     }
 
-    fun epochNow(): Long = System.currentTimeMillis() / 86_400_000L
+    fun epochNow(): Long = java.time.LocalDate.now().toEpochDay()
 
-    fun epochOfThisWeek(dayIdx: Int): Long {
-        val dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        val todayIdx = (dow + 5) % 7
-        return epochNow() - todayIdx + dayIdx
-    }
+    /** 本周某个星期几（周日=0，与 DAY_NAMES / todayIndex 一致）的日号。 */
+    fun epochOfThisWeek(dayIdx: Int): Long = epochNow() - todayIndex() + dayIdx
 
-    fun currentWeekdayIdx(): Int {
-        val dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        return (dow + 5) % 7
-    }
+    /** 也和 todayIndex 一样是周日=0（以前这里是周一=0，导致特殊时段错一天）。 */
+    fun currentWeekdayIdx(): Int = todayIndex()
 
     fun specialForDate(epochDay: Long): SpecialRule? = specials.firstOrNull { r ->
         !r.closed && r.startEpochDay > 0L && epochDay >= r.startEpochDay && epochDay <= r.endEpochDay() &&
@@ -643,74 +750,26 @@ class Store(ctx: Context) {
         save()
     }
 
-    fun exportJson(): String {
-        val root = JSONObject()
-        val na = JSONArray()
-        notes.forEach { n ->
-            val o = JSONObject()
-            o.put("id", n.id); o.put("text", n.text); o.put("tag", n.tag)
-            o.put("marked", n.marked); o.put("done", n.done)
-            o.put("audioPath", n.audioPath); o.put("audioDur", n.audioDur)
-            o.put("createdAt", n.createdAt); o.put("updatedAt", n.updatedAt)
-            na.put(o)
-        }
-        val sa = JSONArray()
-        slots.forEach { s ->
-            val o = JSONObject()
-            o.put("id", s.id); o.put("name", s.name); o.put("type", s.type)
-            o.put("start", s.start); o.put("end", s.end)
-            val da = JSONArray(); s.days.forEach { da.put(it) }
-            o.put("days", da)
-            sa.put(o)
-        }
-        root.put("notes", na); root.put("slots", sa)
-        return root.toString(2)
-    }
+    fun exportJson(): String = snapshot().toString(2)
 
     fun importJson(raw: String): Boolean {
-        return try {
-            val root = JSONObject(raw)
-            val na = root.optJSONArray("notes") ?: return false
-            notes.clear()
-            for (i in 0 until na.length()) {
-                val o = na.getJSONObject(i)
-                notes.add(Note(
-                    id = o.optString("id", uid()),
-                    text = o.optString("text", ""),
-                    tag = o.optString("tag", "随手记"),
-                    marked = o.optBoolean("marked", false),
-                    done = o.optBoolean("done", false),
-                    audioPath = o.optString("audioPath", ""),
-                    audioDur = o.optLong("audioDur", 0),
-                    createdAt = o.optLong("createdAt", System.currentTimeMillis()),
-                    updatedAt = o.optLong("updatedAt", System.currentTimeMillis())
-                ))
-            }
-            val sa = root.optJSONArray("slots")
-            if (sa != null) {
-                slots.clear()
-                for (i in 0 until sa.length()) {
-                    val o = sa.getJSONObject(i)
-                    val s = Slot(
-                        id = o.optString("id", uid()),
-                        name = o.optString("name", "未命名"),
-                        type = o.optString("type", "class"),
-                        start = o.optString("start", "08:00"),
-                        end = o.optString("end", "08:45")
-                    )
-                    val da = o.optJSONArray("days")
-                    if (da != null) for (j in 0 until da.length()) {
-                        val d = da.optInt(j, -1)
-                        if (d in 0..6) s.days.add(d)
-                    }
-                    slots.add(s)
-                }
-            }
-            if (slots.isEmpty()) resetSchedule(saveNow = false)
-            save()
-            true
+        val n = ArrayList<Note>()
+        val s = ArrayList<Slot>()
+        val g = ArrayList<TimeGroup>()
+        val sp = ArrayList<SpecialRule>()
+        try {
+            collect(JSONObject(raw), n, s, g, sp)
         } catch (e: Exception) {
-            false
+            EventLog.add("store", "import fail: " + e)
+            return false
         }
+        if (n.isEmpty() && s.isEmpty() && g.isEmpty() && sp.isEmpty()) return false
+        if (s.isEmpty()) {
+            resetSchedule(saveNow = false)
+            s.addAll(slots)
+        }
+        applyIn(n, s, g, sp)
+        save()
+        return true
     }
 }

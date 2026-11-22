@@ -93,6 +93,7 @@ internal fun SharePage(store: Store, onBack: () -> Unit) {
     }
 
     if (step == 0) {
+        val shareNotes = store.notesSorted()
         SubPageListFrame(onBack = onBack) {
             item(key = "share-title") {
                 Fish { PageTitle("发到手机", "选要发的笔记，可以多选") }
@@ -112,7 +113,7 @@ internal fun SharePage(store: Store, onBack: () -> Unit) {
                     )
                 }
             }
-            val notes = store.notesSorted()
+            val notes = shareNotes
             if (notes.isEmpty()) {
                 item(key = "share-empty") {
                     Fish {

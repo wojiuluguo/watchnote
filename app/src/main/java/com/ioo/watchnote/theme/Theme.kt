@@ -13,13 +13,34 @@ data class AccentTheme(
     val onPrimary: Color
 )
 
+/** 夜墨 Ink Nocturne：暗色底 + 单强调色。per the 2026-11 design study. */
 val ACCENT_THEMES = listOf(
-    AccentTheme("紫色", Color(0xFFC8B6FF), Color(0xFF493575), Color(0xFFCAC2DC), Color(0xFF2F1D5B)),
-    AccentTheme("素白", Color(0xFFE7E2E9), Color(0xFF3A363D), Color(0xFFCAC5CE), Color(0xFF262229)),
+    AccentTheme("朱砂", Color(0xFFFF6A4D), Color(0xFF5C2A1F), Color(0xFFF3B7A6), Color(0xFF3A0F07)),
+    AccentTheme("素白", Color(0xFFF5F1E8), Color(0xFF3A363D), Color(0xFFD8D2C6), Color(0xFF262229)),
     AccentTheme("青色", Color(0xFF9FE8D8), Color(0xFF1F4E45), Color(0xFFB9D8D0), Color(0xFF10332C)),
-    AccentTheme("琥珀", Color(0xFFFFC9A3), Color(0xFF5C3A22), Color(0xFFE8C6B0), Color(0xFF3A2110)),
+    AccentTheme("琥珀", Color(0xFFFFC46B), Color(0xFF5C3A22), Color(0xFFE8C6B0), Color(0xFF3A2110)),
     AccentTheme("蓝色", Color(0xFFA8C7FA), Color(0xFF27477A), Color(0xFFC5D6F0), Color(0xFF10203D))
 )
+
+/**
+ * 用任意一个颜色派生整套强调色：primary 就是它本身，
+ * 容器色压暗、secondary 提亮、onPrimary 按亮度自动选深墨 / 浅米白。
+ * 用于「更多颜色」（中国传统色）里挑出来的颜色。
+ */
+fun accentFromColor(color: Color): AccentTheme {
+    val lum = 0.299f * color.red + 0.587f * color.green + 0.114f * color.blue
+    // 玄黑一类的极暗色直接当强调色，在黑底上等于看不见；只对 lum < 0.26 的色往白里提一点（保色相），
+    // 提到 0.32 左右刚好能在纯黑背景上看清。其它颜色一律原样使用。
+    val primary = if (lum < 0.26f) mix(color, Color.White, (0.32f - lum) / (1f - lum)) else color
+    val ink = if (lum > 0.45f) Color(0xFF1A1310) else Color(0xFFF5F1E8)
+    return AccentTheme(
+        name = "自定义",
+        primary = primary,
+        primaryContainer = mix(primary, Color.Black, 0.62f),
+        secondary = mix(primary, Color.White, 0.42f),
+        onPrimary = ink
+    )
+}
 
 private fun mix(a: Color, b: Color, t: Float): Color {
     return Color(
@@ -31,34 +52,34 @@ private fun mix(a: Color, b: Color, t: Float): Color {
 }
 
 private val base = ColorScheme(
-    primary = Color(0xFFC8B6FF),
-    primaryDim = Color(0xFFB29AF7),
-    onPrimary = Color(0xFF2F1D5B),
-    primaryContainer = Color(0xFF493575),
-    onPrimaryContainer = Color(0xFFE9DDFF),
-    secondary = Color(0xFFCAC2DC),
-    secondaryDim = Color(0xFFAEA6BF),
-    onSecondary = Color(0xFF312E3B),
-    secondaryContainer = Color(0xFF484451),
-    onSecondaryContainer = Color(0xFFE7E0F4),
-    tertiary = Color(0xFFFFB2C7),
-    tertiaryDim = Color(0xFFE595AC),
-    onTertiary = Color(0xFF511D31),
-    tertiaryContainer = Color(0xFF6D3348),
-    onTertiaryContainer = Color(0xFFFFD9E2),
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
-    errorContainer = Color(0xFF93000A),
-    onErrorContainer = Color(0xFFFFDAD6),
-    background = Color.Black,
-    onBackground = Color(0xFFE9E1EC),
-    onSurface = Color(0xFFE9E1EC),
-    onSurfaceVariant = Color(0xFFCBC3CE),
-    outline = Color(0xFF958E99),
-    outlineVariant = Color(0xFF4A454E),
-    surfaceContainerLow = Color(0xFF1B181D),
-    surfaceContainer = Color(0xFF211E23),
-    surfaceContainerHigh = Color(0xFF2C292E)
+    primary = Color(0xFFFF6A4D),
+    primaryDim = Color(0xFFD9563E),
+    onPrimary = Color(0xFF3A0F07),
+    primaryContainer = Color(0xFF5C2A1F),
+    onPrimaryContainer = Color(0xFFFFD9CF),
+    secondary = Color(0xFFFFC46B),
+    secondaryDim = Color(0xFFD9A659),
+    onSecondary = Color(0xFF3A2A0E),
+    secondaryContainer = Color(0xFF3B2F1B),
+    onSecondaryContainer = Color(0xFFFFE6C2),
+    tertiary = Color(0xFF7BD88F),
+    tertiaryDim = Color(0xFF63B374),
+    onTertiary = Color(0xFF10331A),
+    tertiaryContainer = Color(0xFF1E3B26),
+    onTertiaryContainer = Color(0xFFD4F3DB),
+    error = Color(0xFFFF5A5A),
+    onError = Color(0xFF3A0000),
+    errorContainer = Color(0xFF5C1414),
+    onErrorContainer = Color(0xFFFFD4D4),
+    background = Color(0xFF000000),
+    onBackground = Color(0xFFF5F1E8),
+    onSurface = Color(0xFFF5F1E8),
+    onSurfaceVariant = Color(0xFFA8A29A),
+    outline = Color(0xFF6E6A64),
+    outlineVariant = Color(0xFF2E2E33),
+    surfaceContainerLow = Color(0xFF141416),
+    surfaceContainer = Color(0xFF1F1F22),
+    surfaceContainerHigh = Color(0xFF2A2A2E)
 )
 
 private fun schemeFor(accent: AccentTheme): ColorScheme {
@@ -95,7 +116,11 @@ private fun schemeFor(accent: AccentTheme): ColorScheme {
 }
 
 @Composable
-fun WristNoteTheme(accentIndex: Int = 0, content: @Composable () -> Unit) {
-    val accent = ACCENT_THEMES.getOrElse(accentIndex) { ACCENT_THEMES[0] }
+fun WristNoteTheme(accentIndex: Int = 0, customColor: Int = 0, content: @Composable () -> Unit) {
+    val accent = if (customColor != 0) {
+        accentFromColor(Color(customColor.toLong() and 0xFFFFFFFFL))
+    } else {
+        ACCENT_THEMES.getOrElse(accentIndex) { ACCENT_THEMES[0] }
+    }
     MaterialTheme(colorScheme = schemeFor(accent), content = content)
 }

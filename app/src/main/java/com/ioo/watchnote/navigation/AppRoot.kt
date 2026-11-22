@@ -101,6 +101,7 @@ data class ConfirmData(
 
 sealed interface SubPage {
     object Theme : SubPage
+    data class ColorFamily(val index: Int) : SubPage
     object Manage : SubPage
     object About : SubPage
     object AnimMode : SubPage
@@ -115,6 +116,10 @@ sealed interface SubPage {
     data class SpecialItemEdit(val ruleId: String, val index: Int) : SubPage
     data class SlotEdit(val id: String) : SubPage
     data class NoteEdit(val id: String) : SubPage
+    object TodoTime : SubPage
+    data class TodoEdit(val noteId: String = "", val start: Long = 0, val end: Long = 0) : SubPage
+    data class View(val noteId: String) : SubPage
+    data class More(val noteId: String) : SubPage
 }
 
 @Composable
@@ -132,7 +137,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
     val fullAnim = animMode == 0
     var hapticFirst by remember { mutableStateOf(true) }
     LaunchedEffect(pager.currentPage) {
-        val idx = (((pager.currentPage - 2000) % 4) + 4) % 4
+        val idx = (((pager.currentPage - 2000) % 5) + 5) % 5
         EventLog.add("page", "switch page=" + pager.currentPage + " idx=" + idx)
         if (hapticFirst) hapticFirst = false else Haptics.page()
     }
@@ -140,7 +145,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
         EventLog.add("nav", "stack=" + stack.joinToString(">"))
     }
     BackHandler(enabled = stack.isEmpty()) {
-        val idx = (((pager.currentPage - 2000) % 4) + 4) % 4
+        val idx = (((pager.currentPage - 2000) % 5) + 5) % 5
         if (idx == 0) {
             confirm = ConfirmData("退出应用", "要退出手表笔记吗？", "退出", true) { activity.finish() }
         } else {
@@ -150,17 +155,26 @@ fun AppRoot(activity: MainActivity, store: Store) {
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
-            when ((((page - 2000) % 4) + 4) % 4) {
+            when ((((page - 2000) % 5) + 5) % 5) {
                 0 -> NotesPage(
                     store = store,
                     refresh = refresh,
                     fullAnim = fullAnim,
                     active = page == pager.currentPage,
                     onAdd = { stack = stack + SubPage.NoteEdit("") },
-                    onOpen = { stack = stack + SubPage.NoteEdit(it) },
+                    onOpen = { stack = stack + SubPage.View(it) },
                     onChanged = { refresh++ }
                 )
-                1 -> TimetablePage(
+                1 -> TodoPage(
+                    store = store,
+                    refresh = refresh,
+                    fullAnim = fullAnim,
+                    active = page == pager.currentPage,
+                    onAdd = { stack = stack + SubPage.TodoTime },
+                    onOpen = { stack = stack + SubPage.View(it) },
+                    onChanged = { refresh++ }
+                )
+                2 -> TimetablePage(
                     store = store,
                     refresh = refresh,
                     fullAnim = fullAnim,
@@ -168,7 +182,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
                     onManage = { stack = stack + SubPage.Manage },
                     onEdit = { stack = stack + SubPage.SlotEdit(it) }
                 )
-                2 -> ClockPage(store = store, refresh = refresh, fullAnim = fullAnim)
+                3 -> ClockPage(store = store, refresh = refresh, fullAnim = fullAnim)
                 else -> SettingsPage(
                     store = store,
                     onShowTopTime = { store.setShowTopTime(!UiPrefsState.showTopTime.value) },
@@ -212,8 +226,8 @@ fun AppRoot(activity: MainActivity, store: Store) {
             }
         }
         PageDots(pager, Modifier.align(Alignment.CenterStart).padding(start = 6.dp))
-        val pageIdx = (((pager.currentPage - 2000) % 4) + 4) % 4
-        if (UiPrefsState.showTopTime.value && pageIdx != 2) {
+        val pageIdx = (((pager.currentPage - 2000) % 5) + 5) % 5
+        if (UiPrefsState.showTopTime.value && pageIdx != 3) {
             LaunchedEffect(pageIdx) { EventLog.add("ui", "overlay topTime shown page=" + pageIdx) }
             TimeText(modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp))
         }
@@ -230,10 +244,26 @@ fun AppRoot(activity: MainActivity, store: Store) {
         label = "subpage"
     ) { page ->
         when (page) {
-        SubPage.Theme -> ThemePage(UiPrefsState.accent.value, onSelect = {
-            store.setAccent(it)
-            refresh++
-        }, onBack = { stack = stack.dropLast(1) })
+        SubPage.Theme -> ColorListPage(
+            currentPreset = UiPrefsState.accent.value,
+            customArgb = UiPrefsState.customAccent.value,
+            onPreset = {
+                store.setAccent(it)
+                refresh++
+            },
+            onOpenSeries = { stack = stack + SubPage.ColorFamily(it) },
+            onBack = { stack = stack.dropLast(1) }
+        )
+        is SubPage.ColorFamily -> ColorWheelPage(
+            seriesIndex = page.index,
+            selectedArgb = UiPrefsState.customAccent.value,
+            onBack = { stack = stack.dropLast(1) },
+            onPick = { argb, name ->
+                store.setAccentColor(argb, name)
+                refresh++
+                stack = stack.dropLast(1)
+            }
+        )
         SubPage.Manage -> ManagePage(
             store = store,
             refresh = refresh,
@@ -322,6 +352,38 @@ fun AppRoot(activity: MainActivity, store: Store) {
             slotId = page.id,
             onBack = { stack = stack.dropLast(1) },
             onSaved = { refresh++ }
+        )
+        is SubPage.View -> NoteViewPage(
+            activity = activity,
+            store = store,
+            noteId = page.noteId,
+            onBack = { stack = stack.dropLast(1) },
+            onMore = { stack = stack + SubPage.More(it) }
+        )
+        is SubPage.More -> NoteMorePage(
+            activity = activity,
+            store = store,
+            noteId = page.noteId,
+            onBack = { stack = stack.dropLast(1) },
+            onEdit = { id ->
+                val n = store.getNote(id)
+                stack = stack + if (n != null && n.todo) SubPage.TodoEdit(id) else SubPage.NoteEdit(id)
+            },
+            onGone = { stack = stack.dropLast(2) }
+        )
+        SubPage.TodoTime -> TodoTimePage(
+            store = store,
+            onBack = { stack = stack.dropLast(1) },
+            // 替换掉「定时间」这一层：保存后直接回办事列表，不再回到定时间页
+            onNext = { start, end -> stack = stack.dropLast(1) + SubPage.TodoEdit("", start, end) }
+        )
+        is SubPage.TodoEdit -> TodoEditPage(
+            store = store,
+            noteId = page.noteId,
+            presetStart = page.start,
+            presetEnd = page.end,
+            onBack = { stack = stack.dropLast(1) },
+            onChanged = { refresh++ }
         )
         is SubPage.NoteEdit -> NoteEditPage(
             activity = activity,

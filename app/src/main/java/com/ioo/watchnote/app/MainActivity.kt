@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
         EventLog.add("app", "appScaffold defaultTime disabled")
         EventLog.add("app", "onCreate version=" + (try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "?" }))
         setContent {
-            WristNoteTheme(UiPrefsState.accent.value) {
+            WristNoteTheme(UiPrefsState.accent.value, UiPrefsState.customAccent.value) {
                 AppScaffold(timeText = { }) {
                     AppRoot(this@MainActivity, store)
                 }
@@ -291,6 +291,34 @@ class MainActivity : ComponentActivity() {
             cm.setPrimaryClip(android.content.ClipData.newPlainText("watchnote_log", text))
             toast("已复制")
         } catch (e: Exception) {
+        }
+    }
+
+    /** 把文本写到公共 Download 目录（老系统写 App 自己的外部目录），返回路径。 */
+    fun writeDownload(name: String, text: String): String? {
+        return try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val values = android.content.ContentValues()
+                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+                values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
+                values.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                values.put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    val done = android.content.ContentValues()
+                    done.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                    contentResolver.update(uri, done, null, null)
+                    "Download/" + name
+                } else null
+            } else {
+                val dir = getExternalFilesDir(null) ?: filesDir
+                val f = java.io.File(dir, name)
+                java.io.FileOutputStream(f).use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                f.absolutePath
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 

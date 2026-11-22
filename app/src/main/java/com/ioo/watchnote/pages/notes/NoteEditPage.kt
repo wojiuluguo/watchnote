@@ -108,10 +108,33 @@ internal fun NoteEditPage(activity: MainActivity, store: Store, noteId: String, 
     var recording by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
 
+    var saveTick by remember { mutableStateOf(0) }
+
     fun commit() {
-        val draft = Note(id = id, text = text, tag = tag, marked = marked, done = done, audioPath = audioPath, audioDur = audioDur)
+        // 保留 existing 的办事字段和创建时间：编辑笔记绝不能把它们清掉
+        val draft = Note(
+            id = id,
+            text = text,
+            tag = tag,
+            marked = marked,
+            done = done,
+            todo = existing?.todo ?: false,
+            dueAt = existing?.dueAt ?: 0L,
+            endAt = existing?.endAt ?: 0L,
+            audioPath = audioPath,
+            audioDur = audioDur,
+            createdAt = existing?.createdAt ?: System.currentTimeMillis()
+        )
         val saved = store.saveNote(draft)
         if (saved != null) id = saved.id
+    }
+
+    // 敲字时去抖 400ms 再存盘，别每按一个键就写一遍 JSON
+    LaunchedEffect(saveTick) {
+        if (saveTick > 0) {
+            delay(400)
+            commit()
+        }
     }
 
     SubPageFrame(onBack) {
@@ -121,9 +144,9 @@ internal fun NoteEditPage(activity: MainActivity, store: Store, noteId: String, 
             ChoiceChip(if (done) "✓ 完成" else "○ 完成", done, { done = !done; if (id.isNotEmpty()) commit() }, Modifier.weight(1f))
         }
         FieldLabel("内容")
-        TextFieldBox(text, { text = it; if (id.isNotEmpty()) commit() }, "写点什么…也可以点下面语音输入", singleLine = false, minLines = 3, heightDp = 130)
+        TextFieldBox(text, { text = it; saveTick++ }, "写点什么…也可以点下面语音输入", singleLine = false, minLines = 3, heightDp = 130)
         FieldLabel("标签")
-        TextFieldBox(tag, { tag = it; if (id.isNotEmpty()) commit() }, "输入标签，比如：作业 / 数学 / 待办")
+        TextFieldBox(tag, { tag = it; saveTick++ }, "输入标签，比如：作业 / 数学 / 待办")
         Spacer(Modifier.height(8.dp))
         SettingPill("🎤", "语音转文字", onClick = {
             activity.startSpeech { result ->
@@ -188,4 +211,3 @@ internal fun NoteEditPage(activity: MainActivity, store: Store, noteId: String, 
         }
     }
 }
-

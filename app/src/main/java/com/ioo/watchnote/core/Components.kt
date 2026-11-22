@@ -40,6 +40,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -62,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +78,7 @@ import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumnItemScope
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumnScope
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumnState
 import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.material3.lazy.TransformationSpec
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
@@ -153,35 +156,42 @@ internal fun WearListPage(
     onEdge: (() -> Unit)? = null,
     fishEye: Boolean = true,
     active: Boolean = true,
+    smallEdge: Boolean = true,
+    state: TransformingLazyColumnState = rememberTransformingLazyColumnState(),
     content: TransformingLazyColumnScope.() -> Unit
 ) {
-    val state = rememberTransformingLazyColumnState()
     DisposableEffect(active) {
         val unregister = if (active) {
             RotaryBus.register { delta -> state.dispatchRawDelta(delta * -150f) }
         } else null
         onDispose { unregister?.invoke() }
     }
-    ScreenScaffold(
-        scrollState = state,
-        timeText = { },
-        edgeButton = {
-            if (edgeIcon != null && onEdge != null) {
-                EdgeButton(onClick = { Haptics.tap(); onEdge() }) {
-                    Text(edgeIcon, fontSize = 22.sp)
+    Box(Modifier.fillMaxSize()) {
+        ScreenScaffold(
+            scrollState = state,
+            timeText = { },
+            edgeButton = {
+                if (edgeIcon != null && onEdge != null) {
+                    EdgeButton(onClick = { Haptics.tap(); onEdge() }) {
+                        Text(edgeIcon, fontSize = 22.sp)
+                    }
+                }
+            }
+        ) { padding ->
+            CompositionLocalProvider(LocalFishEye provides fishEye) {
+                TransformingLazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(top = 24.dp),
+                    state = state,
+                    contentPadding = padding,
+                    rotaryScrollableBehavior = rememberNoopRotaryBehavior()
+                ) {
+                    content()
                 }
             }
         }
-    ) { padding ->
-        CompositionLocalProvider(LocalFishEye provides fishEye) {
-            TransformingLazyColumn(
-                modifier = Modifier.fillMaxSize().padding(top = 24.dp),
-                state = state,
-                contentPadding = padding,
-                rotaryScrollableBehavior = rememberNoopRotaryBehavior()
-            ) {
-                content()
-            }
+        // 所有带主按钮的列表页都放底部小圆按钮（与卡片数无关）；它自己按滚动状态隐藏/飞出
+        if (smallEdge && edgeIcon != null && onEdge != null) {
+            SmallEdgeIconButton(state = state, icon = edgeIcon, onClick = { Haptics.tap(); onEdge() })
         }
     }
 }
@@ -219,8 +229,8 @@ internal fun SettingPill(symbol: String, label: String, danger: Boolean = false,
 internal fun ChoiceChip(text: String, active: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .height(32.dp)
-            .clip(squircle(16.dp))
+            .height(36.dp)
+            .clip(squircle(18.dp))
             .background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable { Haptics.tap(); onClick() }
             .padding(horizontal = 6.dp),
@@ -299,9 +309,9 @@ internal fun TextFieldBox(
 
 @Composable
 internal fun PageDots(pager: PagerState, modifier: Modifier = Modifier) {
-    val current by remember { derivedStateOf { (((pager.currentPage - 2000) % 4) + 4) % 4 } }
+    val current by remember { derivedStateOf { (((pager.currentPage - 2000) % 5) + 5) % 5 } }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        for (i in 0 until 4) {
+        for (i in 0 until 5) {
             val dotHeight by animateDpAsState(if (i == current) 10.dp else 3.dp, label = "dot")
             Box(
                 Modifier
@@ -314,32 +324,102 @@ internal fun PageDots(pager: PagerState, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 子页面底部的小返回键（常亮）。
+ * 判定值与官方 ScreenScaffold 完全一致：lastItemOffset = 视口高度 - 最后一个 item 的底边
+ *（TransformingLazyColumnStateScrollInfoProvider.getLastItemOffset 的算法）。
+ * reveal = 0 时官方 EdgeButton 高度为 0（不显示），小按钮常亮在最下方；
+ * reveal 变大（滚到列表末尾、大按钮开始升起）时，小按钮一边向下飞出屏幕一边淡出。
+ */
+@Composable
+internal fun SmallBackButton(state: TransformingLazyColumnState, onBack: () -> Unit) {
+    SmallEdgeIconButton(state = state, icon = "←", onClick = onBack)
+}
+
+/**
+ * 主页面底部的小圆按钮（＋ / ✎ 等），规则与 SmallBackButton 相同：
+ * 所有列表页常显，不用滑到底找大按钮；大按钮升起时它自己飞下去消失。
+ */
+@Composable
+internal fun SmallEdgeIconButton(state: TransformingLazyColumnState, icon: String, onClick: () -> Unit) {
+    val density = LocalDensity.current
+    // ScreenScaffoldDefaults.EdgeButtonSpacing(16dp) - EdgeButtonMinSpacing(3dp)
+    val correctionPx = with(density) { 13.dp.toPx() }
+    // EdgeButton Small 满高 56dp + 上下各 3dp padding
+    val fullHeightPx = with(density) { 62.dp.toPx() }
+    val travelPx = with(density) { 130.dp.toPx() }
+    val reveal by remember(state) {
+        derivedStateOf {
+            val info = state.layoutInfo
+            val last = info.visibleItems.lastOrNull()
+            if (last != null && last.index == info.totalItemsCount - 1) {
+                val free = (info.viewportSize.height - last.offset - last.transformedHeight).coerceAtLeast(0)
+                ((free - correctionPx) / fullHeightPx).coerceIn(0f, 1f)
+            } else 0f
+        }
+    }
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(bottom = 4.dp)
+                .graphicsLayer {
+                    alpha = (1f - reveal * 2.2f).coerceIn(0f, 1f)
+                    translationY = reveal * travelPx
+                }
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable(enabled = reveal < 0.6f) { Haptics.tap(); onClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(icon, color = MaterialTheme.colorScheme.onPrimary, fontSize = 17.sp)
+        }
+    }
+}
+
 /** 子页面里“列表型”页面：和主页面一样有鱼眼/满血动画；性能模式自动关掉。 */
 @Composable
 internal fun SubPageListFrame(
     onBack: () -> Unit,
     fishEye: Boolean = UiPrefsState.animMode.value == 0,
+    smallBack: Boolean = true,
     content: TransformingLazyColumnScope.() -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        WearListPage(edgeIcon = "←", onEdge = onBack, fishEye = fishEye, active = true) {
+        val state = rememberTransformingLazyColumnState()
+        WearListPage(edgeIcon = "←", onEdge = onBack, fishEye = fishEye, active = true, state = state) {
             content()
         }
+        // 底部小返回键所有列表型子页面都给；大按钮升起时 SmallBackButton 自己飞下去
+        if (smallBack) SmallBackButton(state = state, onBack = onBack)
     }
 }
 
-/** 子页面（表单型）：返回键和主页面一样用官方 EdgeButton，放进 ScreenScaffold 的槽位，尺寸/动画由官方控制。 */
+
+/**
+ * 子页面（表单型）。
+ * 结构与主页面完全一致：ScreenScaffold + TransformingLazyColumn，返回键是官方 EdgeButton，
+ * 放在 ScreenScaffold 的 edgeButton 槽位里（不是叠在内容上）。
+ * 这样 Scaffold 自己算好内容留白和边距，返回键既不会盖住页面内容，动画也由官方组件自己判定。
+ */
 @Composable
-internal fun SubPageFrame(onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun SubPageFrame(
+    onBack: () -> Unit,
+    smallBack: Boolean = true,
+    bottomStart: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val scaffoldState = rememberLazyListState()
-        val scroll = rememberScrollState()
+        val state = rememberTransformingLazyColumnState()
         DisposableEffect(Unit) {
-            val unregister = RotaryBus.register { delta -> scroll.dispatchRawDelta(delta * -150f) }
+            val unregister = RotaryBus.register { delta -> state.dispatchRawDelta(delta * -150f) }
             onDispose { unregister() }
         }
         ScreenScaffold(
-            scrollState = scaffoldState,
+            scrollState = state,
             timeText = { },
             edgeButton = {
                 EdgeButton(onClick = { Haptics.tap(); onBack() }) {
@@ -347,14 +427,28 @@ internal fun SubPageFrame(onBack: () -> Unit, content: @Composable ColumnScope.(
                 }
             }
         ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scroll)
-                    .padding(padding)
-                    .padding(start = 26.dp, end = 26.dp, top = 16.dp, bottom = 24.dp),
-                content = content
-            )
+            TransformingLazyColumn(
+                modifier = Modifier.fillMaxSize().padding(top = 24.dp),
+                state = state,
+                contentPadding = padding,
+                rotaryScrollableBehavior = rememberNoopRotaryBehavior()
+            ) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 26.dp)
+                            .padding(bottom = 16.dp),
+                        content = content
+                    )
+                }
+            }
+        }
+        if (smallBack) SmallBackButton(state = state, onBack = onBack)
+        if (bottomStart != null) {
+            Box(Modifier.align(Alignment.BottomStart).padding(start = 30.dp, bottom = 30.dp)) {
+                bottomStart()
+            }
         }
     }
 }

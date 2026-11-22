@@ -95,7 +95,7 @@ import kotlin.math.ceil
 @Composable
 internal fun NotesPage(store: Store, refresh: Int, fullAnim: Boolean, active: Boolean, onAdd: () -> Unit, onOpen: (String) -> Unit, onChanged: () -> Unit) {
     store.version.intValue
-    val notes = store.notesSorted()
+    val notes = store.notesSorted().filter { !it.todo }
     val pending = remember { mutableStateOf<Note?>(null) }
     WearListPage(edgeIcon = "＋", onEdge = onAdd, fishEye = fullAnim, active = active) {
         item {

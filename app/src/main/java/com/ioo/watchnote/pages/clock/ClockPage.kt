@@ -110,7 +110,7 @@ internal fun ClockPage(store: Store, refresh: Int, fullAnim: Boolean) {
     var rangeLine = ""
     var bigNumber = "--"
     var bigUnit = "分钟"
-    var nextName = "去课程表添加时段"
+    var nextName = "去课程表或办事加一条"
     var nextRange = ""
 
     if (active != null) {
@@ -149,6 +149,41 @@ internal fun ClockPage(store: Store, refresh: Int, fullAnim: Boolean) {
         nextRange = next.start + " – " + next.end
     } else {
         rangeLine = "今天没有安排"
+    }
+
+    // 办事也进这条时间线：正在办 > 课表当前段；下一件谁先到就算谁。
+    // 按开始时间排序后取「最后一条已经开始的」，同时有好几条重叠也不会拿错。
+    val todoList = store.notes.filter { it.todo && !it.done && it.dueAt > 0L }.sortedBy { it.dueAt }
+    val todoActive = todoList.lastOrNull { it.dueAt <= now && it.endAt > now }
+    val todoNext = todoList.firstOrNull { it.dueAt > now }
+    val scheduleNextAbs: Long? = if (next != null) {
+        Store.startOfToday() + st.nextOffset * 86_400_000L + st.nextStart * 60_000L
+    } else null
+
+    if (todoActive != null) {
+        val total = (todoActive.endAt - todoActive.dueAt).toFloat().coerceAtLeast(1f)
+        targetProgress = ((now - todoActive.dueAt).toFloat() / total).coerceIn(0f, 1f)
+        stageName = todoTitle(todoActive)
+        rangeLine = todoRange(todoActive)
+        bigNumber = Math.max(0, ceil((todoActive.endAt - now) / 60_000.0).toInt()).toString()
+        bigUnit = "分钟后结束"
+        if (todoNext != null && (scheduleNextAbs == null || todoNext.dueAt <= scheduleNextAbs)) {
+            nextName = "办事 " + todoTitle(todoNext)
+            nextRange = todoRange(todoNext)
+        } else if (next != null) {
+            nextName = (if (st.nextOffset == 1) "明天 " else "") + next.name
+            nextRange = next.start + " – " + next.end
+        } else {
+            nextName = "没有下一件了"
+        }
+    } else if (todoNext != null && (scheduleNextAbs == null || todoNext.dueAt < scheduleNextAbs)) {
+        targetProgress = 0f
+        stageName = "现在空闲"
+        rangeLine = "空闲到 " + Store.hhmm(todoNext.dueAt)
+        bigNumber = Math.max(0, ceil((todoNext.dueAt - now) / 60_000.0).toInt()).toString()
+        bigUnit = "分钟后开始"
+        nextName = "办事 " + todoTitle(todoNext)
+        nextRange = todoRange(todoNext)
     }
 
     val progress by animateFloatAsState(
@@ -191,4 +226,17 @@ internal fun ClockPage(store: Store, refresh: Int, fullAnim: Boolean) {
             }
         }
     }
+}
+
+/** 办事时间：「20:00 – 21:00」；跨天写「次日」。 */
+private fun todoRange(n: Note): String {
+    if (n.endAt <= n.dueAt) return Store.hhmm(n.dueAt) + " 开始"
+    val cross = (n.endAt - Store.startOfToday()) / 86_400_000L != (n.dueAt - Store.startOfToday()) / 86_400_000L
+    return Store.hhmm(n.dueAt) + " – " + (if (cross) "次日 " else "") + Store.hhmm(n.endAt)
+}
+
+/** 办事标题：取第一行正文，空的话就叫「办事」。 */
+private fun todoTitle(n: Note): String {
+    val t = n.text.trim().split("\n").firstOrNull()?.trim().orEmpty()
+    return if (t.isEmpty()) "办事" else t
 }
