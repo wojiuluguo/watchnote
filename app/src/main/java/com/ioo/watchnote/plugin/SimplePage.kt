@@ -14,6 +14,27 @@ fun interface SimpleAction {
 }
 
 /**
+ * 声明式页面的「按最新数据重画」回调（4.1.22 起）。
+ *
+ * 只注册一次 stat/button 的话，行内容是注册那一刻算好的：插件数据后来变了、
+ * 调 host.invalidate() 让宿主重画，页面上还是旧数字（4.1.21 的示例页面就踩了这个坑：
+ * 点一次「计数加一」toast 从 0 数到 10，页面上的数字还是 0）。
+ * 给一个 renderer 后，宿主每次重画这一页都会重新调一次，插件在里面读最新数据、重新给行。
+ *
+ * 规矩：这里只读数据、只往 p 里写行；不要 toast / 改数据 / 开页面 —— 页面重画就会被重复触发。
+ *
+ * Java：
+ *
+ *     page.render(p -> {
+ *         p.stat("插件计数", String.valueOf(kv.getInt("clicks", 0)));
+ *         p.button("＋", "计数加一", null, "inc");
+ *     });
+ */
+fun interface SimplePageRenderer {
+    fun render(page: SimplePage)
+}
+
+/**
  * 声明式页面（4.1.21 起）：插件只交「有哪些行」，宿主用官方组件画。
  *
  * 为什么需要它：PageSpec 的 content 是 @Composable 函数，只有 Kotlin + Compose 编译器写得出来；
@@ -47,6 +68,7 @@ class SimplePage @JvmOverloads constructor(
     internal var subtitle: String? = null
     internal val rows = ArrayList<SimpleRow>()
     private var handler: SimpleAction? = null
+    private var renderer: SimplePageRenderer? = null
 
     /** 标题下面那行小字。 */
     fun sub(text: String): SimplePage {
@@ -82,7 +104,35 @@ class SimplePage @JvmOverloads constructor(
     internal fun dispatch(actionId: String) {
         handler?.onAction(actionId)
     }
+
+    /**
+     * 让页面按最新数据重画（4.1.22 起）：宿主每次渲染这一页都会重新调一次 renderer，
+     * 行来自这次回调；插件数据变了只要 host.invalidate()，页面上的数字就会跟着变。
+     */
+    fun render(renderer: SimplePageRenderer): SimplePage {
+        this.renderer = renderer
+        return this
+    }
+
+    /**
+     * 渲染前取一次「当前该画的行」：没有 renderer 就是注册时那些静态行；
+     * 有 renderer 就在一个临时 SimplePage 上重新生成。插件抛异常时退回静态行 ——
+     * 页面不能因为插件写错渲染回调就崩掉或全白。
+     */
+    internal fun renderOnce(): SimplePageRender {
+        val r = renderer ?: return SimplePageRender(subtitle, rows)
+        val fresh = SimplePage(id, title, order)
+        return try {
+            r.render(fresh)
+            SimplePageRender(fresh.subtitle, fresh.rows)
+        } catch (t: Throwable) {
+            SimplePageRender(subtitle, rows)
+        }
+    }
 }
+
+/** 一次渲染用到的数据：标题下的小字 + 这一帧要画的行。 */
+internal class SimplePageRender(val subtitle: String?, val rows: List<SimpleRow>)
 
 internal enum class SimpleRowKind { STAT, BUTTON }
 

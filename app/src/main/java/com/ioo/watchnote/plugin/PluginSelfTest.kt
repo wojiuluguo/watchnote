@@ -616,6 +616,7 @@ object PluginSelfTest {
                 "kotlin.jvm.internal.Intrinsics",
                 "com.ioo.watchnote.plugin.SimplePage",
                 "com.ioo.watchnote.plugin.SimpleAction",
+                "com.ioo.watchnote.plugin.SimplePageRenderer",
                 "com.ioo.watchnote.plugin.SimpleRow",
                 "com.ioo.watchnote.plugin.PageKind",
                 "com.ioo.watchnote.plugin.PageRegistry",
@@ -668,6 +669,36 @@ object PluginSelfTest {
         check("页面型外置插件示例包真装一遍") {
             val hook = externalPageSelfTestInstall ?: return@check "没有可用的外置插件安装器（页面示例）"
             hook.invoke()
+        }
+
+        // 31. 声明式页面重画：统计行不能停在注册那一刻的值 —— 4.1.21 的示例页面就是这样，
+        //     点「计数加一」toast 从 0 数到 10，页面上还是 0。renderer 必须每次取最新数据。
+        check("声明式页面能按最新数据重画") {
+            var clicks = 0
+            val page = SimplePage(id = "test.simple:render", title = "动态页")
+                .render { p ->
+                    p.stat("插件计数", clicks.toString())
+                    p.button("＋", "计数加一", "共 " + clicks + " 次", "inc")
+                }
+            val first = page.renderOnce()
+            if (first.rows.size != 2) return@check "第一次渲染行数不对：" + first.rows.size
+            if (first.rows[0].value != "0") return@check "初始值不对：" + first.rows[0].value
+            clicks = 10
+            val second = page.renderOnce()
+            if (second.rows[0].value != "10") return@check "数据变了页面还是旧值：" + second.rows[0].value
+            if (second.rows[1].value != "共 10 次") return@check "按钮尾注没跟着变：" + second.rows[1].value
+            val static = SimplePage(id = "test.simple:static", title = "静态页").stat("固定", "1")
+            if (static.renderOnce().rows[0].value != "1") "静态页渲染被带坏了" else null
+        }
+
+        // 32. 渲染回调出错：插件 renderer 抛异常时退回注册时的静态行，页面不能崩、也不能全白。
+        check("页面渲染出错会退回静态行") {
+            val page = SimplePage(id = "test.simple:bad", title = "坏渲染")
+                .stat("静态行", "还在")
+                .render { error("自测故意抛错") }
+            val snapshot = page.renderOnce()
+            if (snapshot.rows.size != 1) return@check "渲染出错后行数不对：" + snapshot.rows.size
+            if (snapshot.rows[0].label != "静态行") "渲染出错没退回静态行" else null
         }
 
         return results

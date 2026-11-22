@@ -46,6 +46,8 @@ fun PluginPageHost(
             override fun open(pageId: String, arg: Int) { onOpen(pageId, arg) }
         }
     }
+    // 插件 invalidate() 的计数：这里读一下，插件数据变了这一页才会重画（4.1.22）
+    val revision = core.revision
     val owner = core.ownerOfPage(pageId)
     val bottomBar: (@Composable () -> Unit)? = if (owner == null) {
         null
@@ -58,7 +60,7 @@ fun PluginPageHost(
                 spec.content(scope, arg)
             }
             is SimplePage -> CompositionLocalProvider(LocalPluginPageBottomBar provides bottomBar) {
-                SimplePageContent(spec, scope)
+                SimplePageContent(spec, scope, revision)
             }
             is ListPageSpec -> SubPageListFrame(onBack = onClose, bottomStart = bottomBar) {
                 val lazyScope = this
@@ -87,9 +89,12 @@ fun PluginPageHost(
  * 插件没有画自由画布的口子，也就不会出现「每个插件一个风格」的花花绿绿。
  */
 @Composable
-private fun SimplePageContent(page: SimplePage, scope: PageScope) {
-    Official.Page(title = page.title, sub = page.subtitle, onBack = { scope.close() }) {
-        page.rows.forEach { row ->
+private fun SimplePageContent(page: SimplePage, scope: PageScope, revision: Int) {
+    // revision 是插件 invalidate() 的计数：它一变，remember 失效，renderer 重跑一遍拿最新行。
+    // 没有 renderer 的页面就是注册时的静态行，行为和 4.1.21 完全一样。
+    val snapshot = remember(page, revision) { page.renderOnce() }
+    Official.Page(title = page.title, sub = snapshot.subtitle, onBack = { scope.close() }) {
+        snapshot.rows.forEach { row ->
             when (row.kind) {
                 SimpleRowKind.STAT -> Official.Stat(row.label, row.value)
                 SimpleRowKind.BUTTON -> Official.Button(

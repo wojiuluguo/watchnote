@@ -1,6 +1,9 @@
 package com.ioo.watchnote.plugin
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import com.ioo.watchnote.EventLog
 import com.ioo.watchnote.Note
 import com.ioo.watchnote.Store
@@ -150,7 +153,7 @@ class PluginHostImpl(
     override val data: DataApi = DataApiImpl(core.store, manifest, kv)
     override val events: EventBus = core.busOf(manifest.id)
 
-    override fun invalidate() { core.invalidateHandler?.invoke() }
+    override fun invalidate() { core.invalidate() }
     override fun toast(message: String) { core.toastHandler?.invoke(message) }
     override fun openPage(pageId: String) { core.openPage(manifest.id, pageId) }
     override fun openHostPage(screen: HostScreen) { core.openHostPage(screen) }
@@ -174,6 +177,22 @@ class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueS
 
     var toastHandler: ((String) -> Unit)? = null
     var invalidateHandler: (() -> Unit)? = null
+
+    /**
+     * 插件调 invalidate() 的计数（Compose 状态，4.1.22 起）。
+     *
+     * 光调 invalidateHandler 只是让 AppRoot 重画；插件页面如果没读任何随数据变化的
+     * 状态，Compose 可以跳过它，页面上的数字就停在第一次渲染（4.1.21 示例页面就是这样）。
+     * 这里加一拍，PluginPageHost 直接读它，插件数据一变这一页必然重画。
+     */
+    var revision by mutableIntStateOf(0)
+        private set
+
+    /** 插件自己的数据变了：记一拍并通知宿主重画。 */
+    internal fun invalidate() {
+        revision++
+        invalidateHandler?.invoke()
+    }
 
     /** 宿主导航：插件想开自己的页面时，由宿主决定往栈里压一页。 */
     var navigateHandler: ((String) -> Unit)? = null

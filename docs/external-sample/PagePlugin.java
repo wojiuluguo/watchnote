@@ -35,21 +35,9 @@ public final class PagePlugin implements WristPlugin {
     public void install(PluginHost host) {
         final PluginHost h = host;
 
-        int clicks = h.getData().kv().getInt("clicks", 0);
-        int notes;
-        try {
-            notes = h.getData().notes().size();
-        } catch (Throwable t) {
-            notes = -1;
-        }
-
         h.getPages().add(
                 new SimplePage(ID + ":main", "示例页面")
                         .sub("外置插件 · 页面型")
-                        .stat("插件计数", String.valueOf(clicks))
-                        .stat("宿主笔记", notes < 0 ? "读不到" : String.valueOf(notes))
-                        .button("＋", "计数加一", "共 " + clicks + " 次", "inc")
-                        .button("▸", "打开关于页", null, "about")
                         .onAction(actionId -> {
                             if ("inc".equals(actionId)) {
                                 int n = h.getData().kv().getInt("clicks", 0) + 1;
@@ -60,6 +48,21 @@ public final class PagePlugin implements WristPlugin {
                                 // 官方页面只走白名单：插件说"去哪个官方页"，宿主自己压栈
                                 h.openHostPage(HostScreen.ABOUT);
                             }
+                        })
+                        // 4.1.22 起：render 每次宿主重画这一页都会重跑，行里读的是最新数据。
+                        // 以前统计行是安装那一刻算好的，点「计数加一」后 toast 变了、页面数字不变。
+                        .render(p -> {
+                            int clicks = h.getData().kv().getInt("clicks", 0);
+                            int notes;
+                            try {
+                                notes = h.getData().notes().size();
+                            } catch (Throwable t) {
+                                notes = -1;
+                            }
+                            p.stat("插件计数", String.valueOf(clicks));
+                            p.stat("宿主笔记", notes < 0 ? "读不到" : String.valueOf(notes));
+                            p.button("＋", "计数加一", "共 " + clicks + " 次", "inc");
+                            p.button("▸", "打开关于页", null, "about");
                         })
         );
 
