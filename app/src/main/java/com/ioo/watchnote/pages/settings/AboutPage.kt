@@ -150,44 +150,53 @@ internal fun AboutPage(
     onOpenLogs: () -> Unit,
     onOpenPluginSelfTest: (() -> Unit)? = null
 ) {
-    SubPageFrame(onBack) {
-        // 关于页顶图：白底黑图已转成「透明底 + 纯白线条」，深色界面下不会糊成一块
-        Image(
-            painter = painterResource(R.drawable.about_logo),
-            contentDescription = "腕记",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .height(112.dp)
-                .padding(vertical = 2.dp)
-        )
-        PageTitle("腕记")
-        Spacer(Modifier.height(10.dp))
-        SettingPill("i", "详细信息", onClick = onOpenDetail)
-        Spacer(Modifier.height(4.dp))
-        SettingPill("⌘", "开源网址", onClick = onOpenSource)
-        Spacer(Modifier.height(4.dp))
-        SettingPill("☰", "日志管理", onClick = onOpenLogs)
+    // 列表型子页面：每一行都跟设置页同一套 Fish + SettingPill，左右宽度完全一致（4.1.24 修「按钮太窄」）
+    SubPageListFrame(onBack = onBack) {
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 关于页顶图：白底黑图已转成「透明底 + 纯白线条」，深色界面下不会糊成一块
+                Image(
+                    painter = painterResource(R.drawable.about_logo),
+                    contentDescription = "腕记",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .height(104.dp)
+                        .padding(vertical = 2.dp)
+                )
+                PageTitle("腕记")
+            }
+        }
+        item { Fish { SettingPill("i", "详细信息", onClick = onOpenDetail) } }
+        item { Fish { SettingPill("⌘", "开源网址", onClick = onOpenSource) } }
+        item { Fish { SettingPill("☰", "日志管理", onClick = onOpenLogs) } }
         // 插件自检只在插件模块开启后出现
         if (onOpenPluginSelfTest != null) {
-            Spacer(Modifier.height(4.dp))
-            SettingPill("⚙", "插件自检", onClick = onOpenPluginSelfTest)
+            item { Fish { SettingPill("⚙", "插件自检", onClick = onOpenPluginSelfTest) } }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "课程表倒计时 · 语音笔记 · 快捷备忘\n为小米 Watch 5 圆屏与表冠优化",
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 11.5.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "笔记与录音保存在手表本地\n卸载前请先导出备份",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 10.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-        )
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 26.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "课程表倒计时 · 语音笔记 · 快捷备忘\n为小米 Watch 5 圆屏与表冠优化",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 11.5.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "笔记与录音保存在手表本地\n卸载前请先导出备份",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                )
+            }
+        }
     }
 }
 
@@ -195,6 +204,7 @@ internal fun AboutPage(
 internal fun AboutDetailPage(
     pluginModuleOn: Boolean,
     onEnablePluginModule: () -> Unit,
+    onDisablePluginModule: () -> Unit,
     onBack: () -> Unit
 ) {
     var taps by remember { mutableIntStateOf(0) }
@@ -215,7 +225,8 @@ internal fun AboutDetailPage(
                     lastTapAt = now
                     if (taps >= 3) {
                         taps = 0
-                        if (!pluginModuleOn) onEnablePluginModule()
+                        // 4.1.24：三连点变成开关——没开就打开，已开就关掉并恢复原样
+                        if (pluginModuleOn) onDisablePluginModule() else onEnablePluginModule()
                     }
                 }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -250,6 +261,12 @@ internal fun AboutDetailPage(
                         "v" + PluginApi.MODULE_VERSION + "（测试版）",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp
+                    )
+                    Text(
+                        "连点版本号三下可关闭插件模块",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.5.sp,
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                 }
             }

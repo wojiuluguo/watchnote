@@ -148,13 +148,14 @@ internal fun SettingsPage(
         }
         item { Fish { SettingPill("≈", "震动反馈", trailing = if (UiPrefsState.haptics.value) "开" else "关", onClick = { store.setHaptics(!UiPrefsState.haptics.value) }) } }
         item { Fish { SettingPill("✕", "清空全部数据", danger = true, onClick = onClear) } }
-        item { Fish { SettingPill("i", "关于", onClick = onAbout) } }
         // 插件贡献的设置行：插件注册 SETTINGS_ROW 按钮，宿主负责让它们长成和其它行一样
+        // 4.1.24：插件行要排在「关于」上面，「关于」永远是设置页最后一行
         val cores = pluginCore
         if (cores != null) {
             cores.buttonsOf(ButtonSlot.SETTINGS_ROW).forEach { button ->
                 item { Fish { PluginSettingsRow(cores, button) } }
             }
         }
+        item { Fish { SettingPill("i", "关于", onClick = onAbout) } }
     }
 }

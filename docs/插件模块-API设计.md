@@ -25,7 +25,8 @@
 > 外置插件 ABI 稳定：release 整体 `-dontobfuscate` 并钉死插件运行时类，自测第 28 项点名检查这些类没被改名（4.1.20 / versionCode 129）；
 > **声明式页面** `SimplePage`（+ `SimpleAction`）：插件只交统计行/按钮行和一个回调，宿主用 `Official.Page/Stat/Button` 渲染，Java + d8 编的外置插件也能带页面；新增 PageRegistry.add(SimplePage)、内置第二个示例包 page-demo.wplugin、自测第 29/30 项（4.1.21 / versionCode 130）；
 > 声明式页面可**按最新数据重画**：新增 `SimplePage.render(SimplePageRenderer)`，PluginCore 加 `revision` Compose 状态使 invalidate() 后插件页面必然重画，renderer 抛异常退回静态行；示例插件 PagePlugin 改用 render，自测第 31/32 项（4.1.22 / versionCode 131）；
-> 插件模块默认隐藏：`PluginPrefs.plugin_module_enabled` 默认 false，关闭时只加载官方主题颜色插件、设置页不显示「插件」行，关于 → 详细信息对版本号连点三下开启（落盘），开启后显示插件模块版本 `PluginApi.MODULE_VERSION = 0.1`（测试版），并多出「插件自检」入口（4.1.23 / versionCode 132）。
+> 插件模块默认隐藏：`PluginPrefs.plugin_module_enabled` 默认 false，关闭时只加载官方主题颜色插件、设置页不显示「插件」行，关于 → 详细信息对版本号连点三下开启（落盘），开启后显示插件模块版本 `PluginApi.MODULE_VERSION = 0.1`（测试版），并多出「插件自检」入口（4.1.23 / versionCode 132）；
+> 插件模块开关改成双向（已开启时再连点三下即关闭，用 `pluginCore.disable` 收走界面但保留插件数据）；所有确认弹窗从官方 Wear `AlertDialog` 改为自绘 `Dialog`——官方组件会经 `ScalingLazyColumn` 触达 `com.google.wear.input.WearHapticFeedbackConstants`，小米手表缺这个类，一点确认就 `NoClassDefFoundError` 闪退（4.1.24 / versionCode 133）。
 
 ## 一句话结论
 

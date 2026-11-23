@@ -121,6 +121,7 @@ sealed interface SubPage {
     object Plugins : SubPage
     object Share : SubPage
     object OpenSource : SubPage
+    object QrPage : SubPage
     object GroupList : SubPage
     data class GroupEdit(val id: String) : SubPage
     data class GroupItemEdit(val groupId: String, val index: Int) : SubPage
@@ -403,6 +404,17 @@ fun AppRoot(activity: MainActivity, store: Store) {
                 activity.toast("插件模块已开启")
                 EventLog.add("plugin", "插件模块已开启（关于→详细信息连点版本三下）")
             },
+            onDisablePluginModule = {
+                // 4.1.24：再连点三下 = 关掉插件模块。插件界面全部收走，只留官方主题颜色插件；
+                // 用 disable 而不是 uninstall，插件自己的数据还在，下次开启还是原样。
+                pluginPrefs.setPluginModuleEnabled(false)
+                val keepId = ThemePlugin.PLUGIN_ID
+                pluginCore.manifests.map { it.id }.filter { it != keepId }.forEach { pluginCore.disable(it) }
+                pluginModuleOn = false
+                refresh++
+                activity.toast("插件模块已关闭")
+                EventLog.add("plugin", "插件模块已关闭（关于→详细信息连点版本三下）")
+            },
             onBack = { stack = stack.dropLast(1) }
         )
         SubPage.PluginSelfTest -> PluginSelfTestPage(
@@ -417,6 +429,11 @@ fun AppRoot(activity: MainActivity, store: Store) {
             onBack = { stack = stack.dropLast(1) }
         )
         SubPage.OpenSource -> OpenSourcePage(
+            onBack = { stack = stack.dropLast(1) },
+            onCopy = { activity.copyText(PROJECT_URL) },
+            onShowQr = { stack = stack + SubPage.QrPage }
+        )
+        SubPage.QrPage -> ProjectQrPage(
             onBack = { stack = stack.dropLast(1) },
             onCopy = { activity.copyText(PROJECT_URL) }
         )

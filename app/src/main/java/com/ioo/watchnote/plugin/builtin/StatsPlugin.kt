@@ -93,16 +93,6 @@ class StatsPlugin(private val store: Store) : WristPlugin {
                 onClick = { host.openPage(PAGE_STATS) },
             )
         )
-        // 第二个插槽的样例：统计页左下角再放一颗刷新圆钮（PAGE_BOTTOM 宿主会叠在页面内容上）
-        host.buttons.add(
-            ButtonSpec(
-                id = manifest.id + ":refresh",
-                slot = ButtonSlot.PAGE_BOTTOM,
-                icon = "⟳",
-                label = "刷新统计",
-                onClick = { host.invalidate() },
-            )
-        )
     }
 
     override fun uninstall() {
