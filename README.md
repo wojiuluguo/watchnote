@@ -3,7 +3,7 @@
 给小米 Watch 5（Wear OS，480×480 圆屏）做的免费手表笔记应用：记作业、记事情、课程表、倒计时，配中国传统色主题，并带一套可扩展的插件系统。
 
 - 包名：`com.ioo.watchnote`
-- 当前版本：**4.1.24（versionCode 133）**
+- 当前版本：**4.1.25（versionCode 134）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
 ## 支持作者
@@ -18,13 +18,13 @@
 
 ## 下载与安装（Releases）
 
-最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.24（versionCode 133）**：
+最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.25（versionCode 134）**：
 
 | 附件 | 说明 |
 | --- | --- |
-| [watchnote-4.1.24-133.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.24/watchnote-4.1.24-133.apk) | 腕记 Beta 4.1.24，安装到手表/手机（Android 8.0+） |
-| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.24/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
-| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.24/page-demo.wplugin) | 示例页面插件：带一个页面，点「计数加一」数字实时变 |
+| [watchnote-4.1.25-134.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.25/watchnote-4.1.25-134.apk) | 腕记 Beta 4.1.25，安装到手表/手机（Android 8.0+） |
+| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.25/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
+| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.25/page-demo.wplugin) | 示例页面插件：带一个页面，点「计数加一」数字实时变 |
 
 安装后先别找插件：4.1.24 起插件模块**默认隐藏**，默认只加载官方主题颜色。要装插件先到「设置 → 关于 → 详细信息」，对版本号连点三下开启插件模块（再连点三下关闭），之后「关于」页会多出「插件自检」，确认插件自检 32/32 通过。插件安装见下文「插件系统」。
 
@@ -67,7 +67,7 @@ gradle --offline --console=plain :app:assembleRelease
 
 ## 文档
 
-- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.24 的更新记录
+- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.25 的更新记录
 - [docs/最终版施工计划.md](docs/最终版施工计划.md)：最终版各 Step 的施工计划
 - [docs/插件模块-版本说明.md](docs/插件模块-版本说明.md)：插件系统逐版说明
 - [docs/插件模块-API设计.md](docs/插件模块-API设计.md)：插件 API 设计与硬规则
