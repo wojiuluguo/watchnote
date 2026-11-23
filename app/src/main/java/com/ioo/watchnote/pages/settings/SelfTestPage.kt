@@ -93,18 +93,14 @@ import kotlin.math.ceil
    ============================================================ */
 
 @Composable
-internal fun SelfTestPage(
-    store: Store,
-    externalSelfTest: () -> String?,
-    externalSelfTestInstall: () -> String?,
-    externalPageSelfTestInstall: () -> String?,
+internal fun LogPage(
     onExport: () -> Unit,
     onCopy: () -> Unit,
     onClear: () -> Unit,
     onBack: () -> Unit
 ) {
     SubPageFrame(onBack) {
-        PageTitle("自测工具")
+        PageTitle("日志管理")
         val topTimeNow = UiPrefsState.showTopTime.value
         Text(
             "顶部时间当前状态：" + (if (topTimeNow) "显示" else "隐藏"),
@@ -120,34 +116,6 @@ internal fun SelfTestPage(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
         )
-        // 插件系统自测：单独建一个沙盒核心跑，不影响正在用的插件和设置
-        val pluginResults = remember {
-            PluginSelfTest.run(store, externalSelfTest, externalSelfTestInstall, externalPageSelfTestInstall)
-        }
-        val failed = pluginResults.count { !it.ok }
-        LaunchedEffect(Unit) {
-            EventLog.add(
-                "selftest",
-                "plugin " + pluginResults.size + " 项，失败 " + failed + " 项"
-            )
-            pluginResults.filter { !it.ok }.forEach { EventLog.add("selftest", "FAIL " + it.name + "：" + it.detail) }
-        }
-        Text(
-            "插件自检：" + (pluginResults.size - failed) + "/" + pluginResults.size + " 通过",
-            color = if (failed == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)
-        )
-        pluginResults.forEach { r ->
-            Text(
-                (if (r.ok) "✓ " else "✗ ") + r.name + (if (r.ok) "" else "：" + r.detail),
-                color = if (r.ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                fontSize = 9.5.sp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp)
-            )
-        }
-        Spacer(Modifier.height(6.dp))
         SettingPill("⬇", "导出日志到 Download", onClick = onExport)
         SettingPill("⎘", "复制日志", onClick = onCopy)
         SettingPill("✕", "清空日志", danger = true, onClick = onClear)
@@ -158,5 +126,50 @@ internal fun SelfTestPage(
             fontSize = 10.sp,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
         )
+    }
+}
+@Composable
+internal fun PluginSelfTestPage(
+    store: Store,
+    externalSelfTest: () -> String?,
+    externalSelfTestInstall: () -> String?,
+    externalPageSelfTestInstall: () -> String?,
+    onExport: () -> Unit,
+    onBack: () -> Unit
+) {
+    SubPageFrame(onBack) {
+        PageTitle("插件自检")
+        Text(
+            "自检不碰正在用的插件：另外建一个沙盒核心跑一遍生命周期，跑完就扔。",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.5.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        )
+        val results = remember {
+            PluginSelfTest.run(store, externalSelfTest, externalSelfTestInstall, externalPageSelfTestInstall)
+        }
+        val failed = results.count { !it.ok }
+        LaunchedEffect(Unit) {
+            EventLog.add("selftest", "plugin " + results.size + " 项，失败 " + failed + " 项")
+            results.filter { !it.ok }.forEach { EventLog.add("selftest", "FAIL " + it.name + "：" + it.detail) }
+        }
+        Text(
+            "插件自检：" + (results.size - failed) + "/" + results.size + " 通过",
+            color = if (failed == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)
+        )
+        results.forEach { res ->
+            Text(
+                (if (res.ok) "✓ " else "✗ ") + res.name + (if (res.ok) "" else "：" + res.detail),
+                color = if (res.ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                fontSize = 9.5.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        SettingPill("⬇", "导出日志到 Download", onClick = onExport)
     }
 }

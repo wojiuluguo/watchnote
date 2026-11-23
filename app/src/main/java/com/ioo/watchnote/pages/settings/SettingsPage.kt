@@ -113,6 +113,7 @@ internal fun SettingsPage(
     pluginCore: PluginCore? = null,
     themeInstalled: Boolean = true,
     pluginCount: Int = 0,
+    pluginEnabled: Boolean = false,
     onPlugins: () -> Unit = {}
 ) {
     WearListPage(edgeIcon = "↩", onEdge = onBackToNotes, fishEye = UiPrefsState.animMode.value == 0, active = active) {
@@ -134,7 +135,10 @@ internal fun SettingsPage(
         if (themeInstalled) {
             item { Fish { SettingPill("◐", "更换主题颜色", onClick = onTheme) } }
         }
-        item { Fish { SettingPill("⌘", "插件", trailing = pluginCount.toString() + " 个", onClick = onPlugins) } }
+        // 插件模块默认隐藏：总开关没开时，这一行不出现
+        if (pluginEnabled) {
+            item { Fish { SettingPill("⌘", "插件", trailing = pluginCount.toString() + " 个", onClick = onPlugins) } }
+        }
         item { Fish { SettingPill("◔", "动画效果", trailing = if (UiPrefsState.animMode.value == 0) "满血" else "性能", onClick = onAnimMode) } }
         item {
             LaunchedEffect(UiPrefsState.showTopTime.value) {

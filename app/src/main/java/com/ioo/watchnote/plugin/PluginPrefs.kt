@@ -23,4 +23,14 @@ class PluginPrefs(ctx: Context) {
 
     /** 现在应该装上的内置插件 id（按目录顺序）。 */
     fun enabledIds(): List<String> = BuiltinPlugins.all.map { it.id }.filter { isEnabled(it) }
+
+    /**
+     * 插件模块总开关。默认关：关于 → 详细信息里对版本号连点三下才打开。
+     * 关着的时候只加载官方主题颜色插件，其它内置插件不装、外置插件不恢复。
+     */
+    fun isPluginModuleEnabled(): Boolean = prefs.getBoolean("plugin_module_enabled", false)
+
+    fun setPluginModuleEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("plugin_module_enabled", enabled).apply()
+    }
 }

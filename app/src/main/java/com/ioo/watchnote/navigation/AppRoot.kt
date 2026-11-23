@@ -114,6 +114,8 @@ sealed interface SubPage {
     data class PluginPage(val pageId: String, val arg: Int = 0) : SubPage
     object Manage : SubPage
     object About : SubPage
+    object AboutDetail : SubPage
+    object PluginSelfTest : SubPage
     object AnimMode : SubPage
     object SelfTest : SubPage
     object Plugins : SubPage
@@ -147,6 +149,8 @@ fun AppRoot(activity: MainActivity, store: Store) {
     // 传 Context：插件私有 kv 落盘；自测用的沙盒核心不传，就是纯内存
     val pluginCore = remember { PluginCore(store, kvFactory = { id -> PrefKeyValueStore(activity, id) }) }
     val pluginPrefs = remember { PluginPrefs(activity) }
+    // 插件模块总开关：默认隐藏，关于 → 详细信息里对版本号连点三下才开启（落盘、下次还在）
+    var pluginModuleOn by remember { mutableStateOf(pluginPrefs.isPluginModuleEnabled()) }
     // 外置插件加载器：包结构检查 / 解压 / DexClassLoader / 记录，全在这里
     val externalInstaller = remember { ExternalPluginInstaller(activity.applicationContext, pluginCore) }
     pluginCore.toastHandler = { activity.toast(it) }
@@ -170,21 +174,32 @@ fun AppRoot(activity: MainActivity, store: Store) {
     // 读快照：插件装/卸之后，设置页的「插件」行和「更换主题颜色」行都跟着变
     val pluginCount = pluginCore.manifests.size
     val themeInstalled = pluginCore.isInstalled(ThemePlugin.PLUGIN_ID)
-    LaunchedEffect(Unit) {
-        BuiltinPlugins.all.forEach { entry ->
-            if (pluginPrefs.isEnabled(entry.id)) {
-                val result = pluginCore.install(entry.build(store) { refresh++ })
-                if (result is RegisterResult.Rejected) {
-                    EventLog.add("plugin", "install " + entry.id + " 失败：" + result.reason)
+    LaunchedEffect(pluginModuleOn) {
+        if (pluginModuleOn) {
+            BuiltinPlugins.all.forEach { entry ->
+                if (pluginPrefs.isEnabled(entry.id) && !pluginCore.isInstalled(entry.id)) {
+                    val result = pluginCore.install(entry.build(store) { refresh++ })
+                    if (result is RegisterResult.Rejected) {
+                        EventLog.add("plugin", "install " + entry.id + " 失败：" + result.reason)
+                    }
                 }
             }
+            // 外置插件：按上次装好的记录重新加载（不重新解压）
+            val restored = externalInstaller.restoreAll()
+            if (restored > 0) {
+                EventLog.add("plugin", "恢复外置插件 " + restored + " 个")
+            }
+        } else {
+            // 插件模块隐藏：只加载官方主题颜色插件，其它内置插件不装、外置插件不恢复
+            if (!pluginCore.isInstalled(ThemePlugin.PLUGIN_ID)) {
+                val result = pluginCore.install(ThemePlugin(store) { refresh++ })
+                if (result is RegisterResult.Rejected) {
+                    EventLog.add("plugin", "install " + ThemePlugin.PLUGIN_ID + " 失败：" + result.reason)
+                }
+            }
+            EventLog.add("plugin", "插件模块隐藏，只加载官方主题颜色")
         }
-        // 外置插件：按上次装好的记录重新加载（不重新解压）
-        val restored = externalInstaller.restoreAll()
-        if (restored > 0) {
-            EventLog.add("plugin", "恢复外置插件 " + restored + " 个")
-            refresh++
-        }
+        refresh++
     }
     val pager = rememberPagerState(initialPage = 2000) { 4000 }
     val fullAnim = animMode == 0
@@ -279,6 +294,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
                     pluginCore = pluginCore,
                     themeInstalled = themeInstalled,
                     pluginCount = pluginCount,
+                    pluginEnabled = pluginModuleOn,
                     onPlugins = { stack = stack + SubPage.Plugins }
                 )
             }
@@ -372,18 +388,39 @@ fun AppRoot(activity: MainActivity, store: Store) {
         )
         SubPage.About -> AboutPage(
             onBack = { stack = stack.dropLast(1) },
-            onOpenSelfTest = { stack = stack + SubPage.SelfTest },
-            onOpenSource = { stack = stack + SubPage.OpenSource }
+            onOpenDetail = { stack = stack + SubPage.AboutDetail },
+            onOpenSource = { stack = stack + SubPage.OpenSource },
+            onOpenLogs = { stack = stack + SubPage.SelfTest },
+            onOpenPluginSelfTest = if (pluginModuleOn) {
+                { stack = stack + SubPage.PluginSelfTest }
+            } else null
+        )
+        SubPage.AboutDetail -> AboutDetailPage(
+            pluginModuleOn = pluginModuleOn,
+            onEnablePluginModule = {
+                pluginPrefs.setPluginModuleEnabled(true)
+                pluginModuleOn = true
+                activity.toast("插件模块已开启")
+                EventLog.add("plugin", "插件模块已开启（关于→详细信息连点版本三下）")
+            },
+            onBack = { stack = stack.dropLast(1) }
+        )
+        SubPage.PluginSelfTest -> PluginSelfTestPage(
+            store = store,
+            externalSelfTest = { externalInstaller.selfTestExternalLoad() },
+            externalSelfTestInstall = { externalInstaller.selfTestExternalInstall() },
+            externalPageSelfTestInstall = { externalInstaller.selfTestExternalPageInstall() },
+            onExport = {
+                val p = activity.exportAppLog()
+                activity.toast(if (p != null) "日志已保存：" + p else "导出失败")
+            },
+            onBack = { stack = stack.dropLast(1) }
         )
         SubPage.OpenSource -> OpenSourcePage(
             onBack = { stack = stack.dropLast(1) },
             onCopy = { activity.copyText(PROJECT_URL) }
         )
-        SubPage.SelfTest -> SelfTestPage(
-            store = store,
-            externalSelfTest = { externalInstaller.selfTestExternalLoad() },
-            externalSelfTestInstall = { externalInstaller.selfTestExternalInstall() },
-            externalPageSelfTestInstall = { externalInstaller.selfTestExternalPageInstall() },
+        SubPage.SelfTest -> LogPage(
             onExport = {
                 val p = activity.exportAppLog()
                 activity.toast(if (p != null) "日志已保存：" + p else "导出失败")

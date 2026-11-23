@@ -3,6 +3,9 @@ package com.ioo.watchnote.plugin
 /** 宿主 API 版本。插件写 minApi，宿主拿它做准入检查，避免老宿主跑新插件直接崩。 */
 object PluginApi {
     const val API_LEVEL: Int = 1
+
+    /** 插件模块自身的版本（关于 → 详细信息里显示）。API 还在测试阶段，所以是 0.x。 */
+    const val MODULE_VERSION: String = "0.1"
 }
 
 /** v1 开放的权限。没申请的权限，DataApi 会直接拒绝调用。 */

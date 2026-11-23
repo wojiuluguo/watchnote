@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -60,6 +61,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.ioo.watchnote.plugin.PluginApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -139,22 +143,124 @@ private fun ModeRow(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-internal fun AboutPage(onBack: () -> Unit, onOpenSelfTest: () -> Unit, onOpenSource: () -> Unit) {
+internal fun AboutPage(
+    onBack: () -> Unit,
+    onOpenDetail: () -> Unit,
+    onOpenSource: () -> Unit,
+    onOpenLogs: () -> Unit,
+    onOpenPluginSelfTest: (() -> Unit)? = null
+) {
     SubPageFrame(onBack) {
-        PageTitle("腕记")
-        Text(
-            "WristNote · 腕记 · 版本 " + BuildConfig.VERSION_NAME + "（" + BuildConfig.VERSION_CODE + "）",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(top = 2.dp)
+        // 关于页顶图：白底黑图已转成「透明底 + 纯白线条」，深色界面下不会糊成一块
+        Image(
+            painter = painterResource(R.drawable.about_logo),
+            contentDescription = "腕记",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .height(112.dp)
+                .padding(vertical = 2.dp)
         )
-        Spacer(Modifier.height(8.dp))
+        PageTitle("腕记")
+        Spacer(Modifier.height(10.dp))
+        SettingPill("i", "详细信息", onClick = onOpenDetail)
+        Spacer(Modifier.height(4.dp))
         SettingPill("⌘", "开源网址", onClick = onOpenSource)
         Spacer(Modifier.height(4.dp))
-        SettingPill("⚙", "自测工具", onClick = onOpenSelfTest)
-        Spacer(Modifier.height(4.dp))
-        Text("课程表倒计时 · 语音笔记 · 快捷备忘\n为小米 Watch 5 圆屏与表冠优化", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
-        Text("笔记与录音保存在手表本地\n卸载前请先导出备份", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+        SettingPill("☰", "日志管理", onClick = onOpenLogs)
+        // 插件自检只在插件模块开启后出现
+        if (onOpenPluginSelfTest != null) {
+            Spacer(Modifier.height(4.dp))
+            SettingPill("⚙", "插件自检", onClick = onOpenPluginSelfTest)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "课程表倒计时 · 语音笔记 · 快捷备忘\n为小米 Watch 5 圆屏与表冠优化",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.5.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "笔记与录音保存在手表本地\n卸载前请先导出备份",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+        )
+    }
+}
 
+@Composable
+internal fun AboutDetailPage(
+    pluginModuleOn: Boolean,
+    onEnablePluginModule: () -> Unit,
+    onBack: () -> Unit
+) {
+    var taps by remember { mutableIntStateOf(0) }
+    var lastTapAt by remember { mutableLongStateOf(0L) }
+    SubPageFrame(onBack) {
+        PageTitle("详细信息")
+        Spacer(Modifier.height(10.dp))
+        // 版本号：页面主角。连点三下（每下间隔 1.5 秒内）才打开插件模块
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 78.dp)
+                .clip(squircle(34.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .clickable {
+                    val now = System.currentTimeMillis()
+                    taps = if (now - lastTapAt <= 1500L) taps + 1 else 1
+                    lastTapAt = now
+                    if (taps >= 3) {
+                        taps = 0
+                        if (!pluginModuleOn) onEnablePluginModule()
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "版本 " + BuildConfig.VERSION_NAME,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "（" + BuildConfig.VERSION_CODE + "）",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+            }
+        }
+        if (pluginModuleOn) {
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(squircle(26.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Column {
+                    Text("插件模块", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+                    Text(
+                        "v" + PluginApi.MODULE_VERSION + "（测试版）",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "腕记 WristNote · 小米手表本地笔记\n笔记与录音只保存在本机，卸载前请先导出备份",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
