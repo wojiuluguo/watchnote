@@ -53,7 +53,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -203,12 +205,26 @@ internal fun AboutPage(
 @Composable
 internal fun AboutDetailPage(
     pluginModuleOn: Boolean,
+    checker: UpdateChecker,
     onEnablePluginModule: () -> Unit,
     onDisablePluginModule: () -> Unit,
+    onOpenUpdate: () -> Unit,
     onBack: () -> Unit
 ) {
     var taps by remember { mutableIntStateOf(0) }
     var lastTapAt by remember { mutableLongStateOf(0L) }
+    // 4.1.26：进「详细信息」时，距上次检查超过 24 小时就静默查一次（失败也不弹窗）
+    var updateStatus by remember { mutableStateOf(checker.cachedStatusText()) }
+    LaunchedEffect(Unit) {
+        if (!checker.shouldAutoCheck()) return@LaunchedEffect
+        updateStatus = "正在检查…"
+        val result = withContext(Dispatchers.IO) { checker.check() }
+        updateStatus = when (result) {
+            is UpdateCheck.Available -> "有新版 " + result.versionName
+            is UpdateCheck.Latest -> "已是最新"
+            is UpdateCheck.Failed -> "检查失败"
+        }
+    }
     SubPageFrame(onBack) {
         PageTitle("详细信息")
         Spacer(Modifier.height(10.dp))
@@ -271,6 +287,8 @@ internal fun AboutDetailPage(
                 }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        SettingPill("↑", "检查更新", trailing = updateStatus, onClick = onOpenUpdate)
         Spacer(Modifier.height(10.dp))
         Text(
             "腕记 WristNote · 小米手表本地笔记\n笔记与录音只保存在本机，卸载前请先导出备份",

@@ -122,6 +122,7 @@ sealed interface SubPage {
     object Share : SubPage
     object OpenSource : SubPage
     object QrPage : SubPage
+    object Update : SubPage
     object GroupList : SubPage
     data class GroupEdit(val id: String) : SubPage
     data class GroupItemEdit(val groupId: String, val index: Int) : SubPage
@@ -150,6 +151,8 @@ fun AppRoot(activity: MainActivity, store: Store) {
     // 传 Context：插件私有 kv 落盘；自测用的沙盒核心不传，就是纯内存
     val pluginCore = remember { PluginCore(store, kvFactory = { id -> PrefKeyValueStore(activity, id) }) }
     val pluginPrefs = remember { PluginPrefs(activity) }
+    // 4.1.26：检查更新（GitHub Releases）+ 下载器，两个页面共用同一份缓存
+    val updateChecker = remember { UpdateChecker(activity.applicationContext) }
     // 插件模块总开关：默认隐藏，关于 → 详细信息里对版本号连点三下才开启（落盘、下次还在）
     var pluginModuleOn by remember { mutableStateOf(pluginPrefs.isPluginModuleEnabled()) }
     // 外置插件加载器：包结构检查 / 解压 / DexClassLoader / 记录，全在这里
@@ -398,6 +401,8 @@ fun AppRoot(activity: MainActivity, store: Store) {
         )
         SubPage.AboutDetail -> AboutDetailPage(
             pluginModuleOn = pluginModuleOn,
+            checker = updateChecker,
+            onOpenUpdate = { stack = stack + SubPage.Update },
             onEnablePluginModule = {
                 pluginPrefs.setPluginModuleEnabled(true)
                 pluginModuleOn = true
@@ -416,6 +421,11 @@ fun AppRoot(activity: MainActivity, store: Store) {
                 EventLog.add("plugin", "插件模块已关闭（关于→详细信息连点版本三下）")
             },
             onBack = { stack = stack.dropLast(1) }
+        )
+        SubPage.Update -> UpdatePage(
+            checker = updateChecker,
+            onBack = { stack = stack.dropLast(1) },
+            onToast = { activity.toast(it) }
         )
         SubPage.PluginSelfTest -> PluginSelfTestPage(
             store = store,
