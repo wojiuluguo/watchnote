@@ -31,6 +31,14 @@ interface PluginHost {
      */
     val libraries: LibraryApi
 
+    /**
+     * 联网渠道（0.4.5 起）。
+     *
+     * 插件要联网只能走这里：清单里必须声明 [Permission.NET]，否则每次调用都回 no_permission。
+     * 用户可以在插件设置里单独关掉；请求是异步的，回调一定回到主线程。
+     */
+    val net: NetApi
+
     /** 宿主界面状态被插件改了（比如换了主题色），喊一声让宿主重画。 */
     fun invalidate()
 

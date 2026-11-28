@@ -17,8 +17,8 @@ android {
         applicationId = "com.ioo.watchnote"
         minSdk = 26
         targetSdk = 36
-        versionCode = 142
-        versionName = "4.1.33"
+        versionCode = 143
+        versionName = "4.1.34"
     }
 
     compileOptions {

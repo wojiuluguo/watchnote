@@ -62,6 +62,10 @@ fun PluginPageHost(
             is SimplePage -> CompositionLocalProvider(LocalPluginPageBottomBar provides bottomBar) {
                 SimplePageContent(spec, scope, revision)
             }
+            // 0.4.5：节点树页面（容器 + 官方组件 + 画布可以混排）
+            is UIPage -> CompositionLocalProvider(LocalPluginPageBottomBar provides bottomBar) {
+                UIPageContent(spec, scope, revision)
+            }
             is ListPageSpec -> SubPageListFrame(onBack = onClose, bottomStart = bottomBar) {
                 val lazyScope = this
                 val listScope = object : PluginListScope {

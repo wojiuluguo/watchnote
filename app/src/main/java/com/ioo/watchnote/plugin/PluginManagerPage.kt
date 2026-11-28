@@ -369,6 +369,25 @@ private fun PluginRoot(
                     )
                 }
             }
+            item(key = "plugin-root-version-note") {
+                Fish {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                    ) {
+                        Text(
+                            "插件模块 " + PluginApi.MODULE_VERSION + "：布局容器、画布、联网、插件主页面。\n" +
+                                "为什么还不是 0.5：插件暂时还不能改腕记自己的页面（官方页面的布置、按钮样式）。这条做到了才会叫 0.5。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                        )
+                    }
+                }
+            }
             item(key = "plugin-bottom-space") { Spacer(Modifier.height(12.dp)) }
         }
 
@@ -1210,6 +1229,7 @@ private fun permissionLabel(permission: Permission): String = when (permission) 
     Permission.READ_NOTES -> "读笔记"
     Permission.WRITE_NOTES -> "写笔记（未开放）"
     Permission.READ_SETTINGS -> "读设置"
+    Permission.NET -> "联网"
 }
 
 private fun slotLabel(slot: ButtonSlot): String = when (slot) {

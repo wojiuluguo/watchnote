@@ -37,6 +37,7 @@ class PageRegistry internal constructor(
     fun add(spec: PageSpec): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
     fun add(spec: ListPageSpec): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
     fun add(spec: SimplePage): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
+    fun add(spec: UIPage): RegisterResult = track(core.addPage(owner, spec), "页面 " + spec.id)
 
     private fun track(result: RegisterResult, what: String): RegisterResult {
         if (result is RegisterResult.Rejected) onReject?.invoke(what + "：" + result.reason)
@@ -161,6 +162,7 @@ class PluginHostImpl(
     override val data: DataApi = DataApiImpl(core.store, manifest, kv)
     override val events: EventBus = core.busOf(manifest.id)
     override val libraries: LibraryApi = core.libraries.api()
+    override val net: NetApi = NetApi(manifest.id, manifest.permissions)
 
     override fun invalidate() { core.invalidate() }
     override fun toast(message: String) { core.toastHandler?.invoke(message) }
@@ -245,6 +247,17 @@ class PluginCore(
 
     /** 某个插件注册了哪些页面 / 按钮（管理页详情用，只读）。 */
     fun pagesOf(pluginId: String): List<PluginPage> = pages.filter { it.ownerPluginId == pluginId }
+
+    /**
+     * 被声明成「插件主页」的页（asMainPage()），指示栏第 6 格用。
+     * 按 order、id 排序；卸载/停用会从 pages 移除，所以这里天然只剩活插件。
+     */
+    fun mainPages(): List<PluginPage> = pages
+        .filter { (it.spec as? UIPage)?.mainPage == true }
+        .sortedWith(compareBy({ it.spec.order }, { it.spec.id }))
+
+    /** 插件显示名，取不到就退回 id。 */
+    fun pluginName(pluginId: String): String = manifests.firstOrNull { it.id == pluginId }?.name ?: pluginId
     fun buttonsOfPlugin(pluginId: String): List<PluginButton> = buttons.filter { it.ownerPluginId == pluginId }
 
     /** 某个插件私有数据现在存了哪些键（只给键名，不显示值）。 */
@@ -451,6 +464,7 @@ class PluginCore(
     internal fun addPage(owner: String, spec: PageSpec): RegisterResult = addPageChecked(owner, spec)
     internal fun addPage(owner: String, spec: ListPageSpec): RegisterResult = addPageChecked(owner, spec)
     internal fun addPage(owner: String, spec: SimplePage): RegisterResult = addPageChecked(owner, spec)
+    internal fun addPage(owner: String, spec: UIPage): RegisterResult = addPageChecked(owner, spec)
 
     /** 内容页和列表页共用的校验：命名空间、重复、每插件页数上限。 */
     private fun addPageChecked(owner: String, spec: PluginPageSpec): RegisterResult {

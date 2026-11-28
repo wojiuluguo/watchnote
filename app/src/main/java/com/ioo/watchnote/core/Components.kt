@@ -308,10 +308,10 @@ internal fun TextFieldBox(
 }
 
 @Composable
-internal fun PageDots(pager: PagerState, modifier: Modifier = Modifier) {
-    val current by remember { derivedStateOf { (((pager.currentPage - 2000) % 5) + 5) % 5 } }
+internal fun PageDots(pager: PagerState, modifier: Modifier = Modifier, count: Int = 5) {
+    val current by remember(count) { derivedStateOf { (((pager.currentPage - 2000) % count) + count) % count } }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        for (i in 0 until 5) {
+        for (i in 0 until count) {
             val dotHeight by animateDpAsState(if (i == current) 10.dp else 3.dp, label = "dot")
             Box(
                 Modifier

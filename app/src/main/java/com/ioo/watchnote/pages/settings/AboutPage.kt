@@ -287,6 +287,34 @@ internal fun AboutDetailPage(
                 }
             }
         }
+        if (pluginModuleOn) {
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(squircle(26.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Column {
+                    Text(
+                        "为什么是 0.4.5，不是 0.5",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "0.5 的要求里还有一条没做到：插件要能改腕记自己的页面——官方页面的布置、按钮样式都能被插件改。\n" +
+                            "0.4.5 先把能做好的四件事给出来：布局容器、画布、联网、插件主页面。\n" +
+                            "等官方页面也能被插件修改了，这一版才叫 0.5。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(10.dp))
         SettingPill("↑", "检查更新", trailing = updateStatus, onClick = onOpenUpdate)
         Spacer(Modifier.height(10.dp))

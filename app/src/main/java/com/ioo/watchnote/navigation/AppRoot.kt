@@ -9,6 +9,8 @@ import com.ioo.watchnote.plugin.PrefKeyValueStore
 import com.ioo.watchnote.plugin.RegisterResult
 import com.ioo.watchnote.plugin.external.ExternalPluginInstaller
 import com.ioo.watchnote.plugin.PluginPageHost
+import com.ioo.watchnote.plugin.PluginPage
+import com.ioo.watchnote.plugin.Official
 import com.ioo.watchnote.plugin.builtin.ThemePlugin
 
 import androidx.compose.animation.AnimatedContent
@@ -206,10 +208,19 @@ fun AppRoot(activity: MainActivity, store: Store) {
         refresh++
     }
     val pager = rememberPagerState(initialPage = 2000) { 4000 }
+    // 指示栏槽位：0 笔记 / 1 待办 / 2 课程 / 3 时钟 / 4 设置 / 5 插件主页（只在插件声明了主页面时存在）
+    val pluginRev = pluginCore.revision
+    val mainPages = remember(pluginCore, pluginRev, pluginModuleOn) { pluginCore.mainPages() }
+    val slotCount = if (mainPages.isEmpty()) 5 else 6
+    fun slotOf(page: Int): Int = (((page - 2000) % slotCount) + slotCount) % slotCount
+    // 插件主页被撤掉时（卸载/停用），别把人留在已经消失的第 6 格
+    LaunchedEffect(slotCount) {
+        if (slotOf(pager.currentPage) >= slotCount) pager.scrollToPage(2000 + slotCount - 1)
+    }
     val fullAnim = animMode == 0
     var hapticFirst by remember { mutableStateOf(true) }
     LaunchedEffect(pager.currentPage) {
-        val idx = (((pager.currentPage - 2000) % 5) + 5) % 5
+        val idx = slotOf(pager.currentPage)
         EventLog.add("page", "switch page=" + pager.currentPage + " idx=" + idx)
         if (hapticFirst) hapticFirst = false else Haptics.page()
     }
@@ -217,7 +228,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
         EventLog.add("nav", "stack=" + stack.joinToString(">"))
     }
     BackHandler(enabled = stack.isEmpty()) {
-        val idx = (((pager.currentPage - 2000) % 5) + 5) % 5
+        val idx = slotOf(pager.currentPage)
         if (idx == 0) {
             confirm = ConfirmData("退出应用", "要退出手表笔记吗？", "退出", true) { activity.finish() }
         } else {
@@ -227,7 +238,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
-            when ((((page - 2000) % 5) + 5) % 5) {
+            when (slotOf(page)) {
                 0 -> NotesPage(
                     store = store,
                     refresh = refresh,
@@ -256,7 +267,7 @@ fun AppRoot(activity: MainActivity, store: Store) {
                     onEdit = { stack = stack + SubPage.SlotEdit(it) }
                 )
                 3 -> ClockPage(store = store, refresh = refresh, fullAnim = fullAnim)
-                else -> SettingsPage(
+                4 -> SettingsPage(
                     store = store,
                     onShowTopTime = { store.setShowTopTime(!UiPrefsState.showTopTime.value) },
                     active = page == pager.currentPage,
@@ -301,10 +312,17 @@ fun AppRoot(activity: MainActivity, store: Store) {
                     pluginEnabled = pluginModuleOn,
                     onPlugins = { stack = stack + SubPage.Plugins }
                 )
+
+                else -> MainPluginSlot(
+                    core = pluginCore,
+                    mainPages = mainPages,
+                    onBack = { scope.launch { pager.animateScrollToPage(2000 + 4) } },
+                    onOpen = { pageId, arg -> stack = stack + SubPage.PluginPage(pageId, arg + 0) },
+                )
             }
         }
-        PageDots(pager, Modifier.align(Alignment.CenterStart).padding(start = 6.dp))
-        val pageIdx = (((pager.currentPage - 2000) % 5) + 5) % 5
+        PageDots(pager, Modifier.align(Alignment.CenterStart).padding(start = 6.dp), slotCount)
+        val pageIdx = slotOf(pager.currentPage)
         if (UiPrefsState.showTopTime.value && pageIdx != 3) {
             LaunchedEffect(pageIdx) { EventLog.add("ui", "overlay topTime shown page=" + pageIdx) }
             TimeText(modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp))
@@ -520,4 +538,50 @@ fun AppRoot(activity: MainActivity, store: Store) {
     }
 
     confirm?.let { c -> ConfirmDialog(c) { confirm = null } }
+}
+
+/**
+ * 指示栏第 6 格：插件自己的主页面。
+ *
+ * 只有一个插件声明了主页面时，这一格就是那一页本身（跟官方页一样能直接滑到）；
+ * 有两个以上时，这一格变成抽屉：列出全部插件主页，点一行进去看，返回回到抽屉。
+ * 一个都没有时这一格整个不存在（指示栏保持 5 点）。
+ */
+@Composable
+private fun MainPluginSlot(
+    core: PluginCore,
+    mainPages: List<PluginPage>,
+    onBack: () -> Unit,
+    onOpen: (pageId: String, arg: Int) -> Unit,
+) {
+    val first = mainPages.firstOrNull()
+    if (first == null) {
+        // 兜底：页被卸载得只剩 0 个时别留一张空页
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
+    if (mainPages.size == 1) {
+        PluginPageHost(
+            core = core,
+            pageId = first.spec.id,
+            arg = 0,
+            onClose = onBack,
+            onOpen = onOpen,
+        )
+        return
+    }
+    Official.Page(
+        title = "插件页面",
+        sub = mainPages.size.toString() + " 个插件主页",
+        onBack = onBack,
+    ) {
+        mainPages.forEach { page ->
+            Official.Button(
+                symbol = "🧩",
+                label = page.spec.title,
+                trailing = core.pluginName(page.ownerPluginId),
+                onClick = { onOpen(page.spec.id, 0) },
+            )
+        }
+    }
 }

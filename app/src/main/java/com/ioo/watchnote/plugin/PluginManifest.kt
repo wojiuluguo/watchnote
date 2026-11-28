@@ -2,10 +2,10 @@ package com.ioo.watchnote.plugin
 
 /** 宿主 API 版本。插件写 minApi，宿主拿它做准入检查，避免老宿主跑新插件直接崩。 */
 object PluginApi {
-    const val API_LEVEL: Int = 4
+    const val API_LEVEL: Int = 5
 
     /** 插件模块自身的版本（关于 → 详细信息里显示）。API 还在测试阶段，所以是 0.x。 */
-    const val MODULE_VERSION: String = "0.4"
+    const val MODULE_VERSION: String = "0.4.5"
 }
 
 /** v1 开放的权限。没申请的权限，DataApi 会直接拒绝调用。 */
@@ -13,6 +13,9 @@ enum class Permission {
     READ_NOTES,
     WRITE_NOTES,
     READ_SETTINGS,
+
+    /** 0.4.5 起：走宿主 host.net() 联网。不声明这个权限，联网调用一律被拒。 */
+    NET,
 }
 
 /**
