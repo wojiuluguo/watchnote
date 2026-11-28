@@ -124,4 +124,128 @@ object Official {
     fun Confirm(data: ConfirmData, onClosed: () -> Unit) {
         ConfirmDialog(data, onClosed)
     }
+
+    /* ============================================================
+       0.2 新增：整套官方 UI 组件
+       下面每个函数都是宿主内置页同款实现，插件直接调，不许自己拼一套外观。
+       Java 插件用 SimplePage 里同名的行方法（section / hero / progress …）。
+       ============================================================ */
+
+    /** 小节标题：一组内容前面的灰色小标题。 */
+    @Composable
+    fun Section(text: String) {
+        OfficialSection(text)
+    }
+
+    /** 一段说明文字：比正文小一号，用来解释这一页在干什么。 */
+    @Composable
+    fun Note(text: String) {
+        OfficialNote(text)
+    }
+
+    /** 大数字卡片：标签 + 中间一行大字 + 可选副标题。 */
+    @Composable
+    fun Hero(label: String, value: String, sub: String? = null) {
+        OfficialHero(label, value, sub)
+    }
+
+    /**
+     * 两行列表行：左边符号、上面标题、下面小字、右边状态。
+     * 不给 onClick 就是纯展示行（不可点）。
+     */
+    @Composable
+    fun Item(
+        symbol: String,
+        title: String,
+        sub: String? = null,
+        trailing: String? = null,
+        onClick: (() -> Unit)? = null,
+    ) {
+        OfficialItem(symbol, title, sub, trailing, onClick)
+    }
+
+    /** 线形进度条：label 左边、百分比右边，下面一根进度条。 */
+    @Composable
+    fun Progress(label: String, value: Long, total: Long, trailing: String? = null) {
+        OfficialProgress(label, value, total, trailing)
+    }
+
+    /** 环形进度：圆环 + 中间百分比，圆屏上最省地方。 */
+    @Composable
+    fun Ring(label: String, value: Long, total: Long) {
+        OfficialRing(label, value, total)
+    }
+
+    /**
+     * 数值步进：− 数值 +，点一下加减 step，结果夹在 min..max。
+     * onChange 收到的是夹好之后的新值（不是增量）。
+     */
+    @Composable
+    fun Stepper(
+        label: String,
+        value: Int,
+        min: Int = 0,
+        max: Int = 999,
+        step: Int = 1,
+        onChange: (Int) -> Unit,
+    ) {
+        OfficialStepper(label, value, min, max, step, onChange)
+    }
+
+    /**
+     * 一排可选项：选中项高亮，每行最多 4 个、多了自动换行。
+     * onSelect 收到的是被点中那一项的序号（从 0 数）。
+     */
+    @Composable
+    fun Chips(label: String, options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+        OfficialChips(label, options, selected, onSelect)
+    }
+
+    /** 整块彩色行：底色就是 colorHex（#RRGGBB 或 #AARRGGBB），选中/使用中时 active = true。 */
+    @Composable
+    fun ColorCard(
+        label: String,
+        colorHex: String,
+        trailing: String = "",
+        active: Boolean = false,
+        onClick: () -> Unit,
+    ) {
+        OfficialColorCard(label, colorHex, trailing, active, onClick)
+    }
+
+    /** 时间摘要卡：开始/截止两行看得清（毫秒时间戳）。 */
+    @Composable
+    fun TimeCard(start: Long, end: Long, trailing: String? = null, onClick: (() -> Unit)? = null) {
+        OfficialTimeCard(start, end, trailing, onClick)
+    }
+
+    /** 开关行：右侧显示 开/关，点一下回调切换后的状态。 */
+    @Composable
+    fun Toggle(label: String, on: Boolean, onToggle: (Boolean) -> Unit) {
+        OfficialToggle(label, on, onToggle)
+    }
+
+    /** 一条分割线。 */
+    @Composable
+    fun Divider() {
+        OfficialDivider()
+    }
+
+    /** 空白占位：height 是 dp。 */
+    @Composable
+    fun Space(height: Int) {
+        OfficialSpace(height)
+    }
+
+    /** 空状态文字：居中一行灰字。 */
+    @Composable
+    fun Empty(text: String) {
+        OfficialEmpty(text)
+    }
+
+    /** 柱状小图：values 是每根柱子相对高度（自动按最大值缩放），trailing 是右边一句话。 */
+    @Composable
+    fun Bars(label: String, values: List<Float>, trailing: String? = null) {
+        OfficialBars(label, values, trailing)
+    }
 }

@@ -42,11 +42,11 @@ import androidx.wear.compose.material3.rememberPickerState
 private fun cnColor(argb: Long): Color = Color(argb and 0xFFFFFFFFL)
 
 /** 卡片底色上该用深字还是浅字。 */
-private fun cnOnColor(bg: Color): Color =
+internal fun cnOnColor(bg: Color): Color =
     if (bg.luminance() > 0.45f) Color(0xFF14100E) else Color(0xFFF8F4ED)
 
 /** 两个颜色按比例混合（t=0 取 a，t=1 取 b）。 */
-private fun blend(a: Color, b: Color, t: Float): Color = Color(
+internal fun blend(a: Color, b: Color, t: Float): Color = Color(
     red = a.red + (b.red - a.red) * t,
     green = a.green + (b.green - a.green) * t,
     blue = a.blue + (b.blue - a.blue) * t,
@@ -67,7 +67,7 @@ private fun famColor(fam: CnFamily): Color {
 
 /** 一张颜色卡片：整块底色就是它自己的颜色，名字在上面，右侧是单选控件（选中 = 使用中）。 */
 @Composable
-private fun ColorCard(
+internal fun ColorCard(
     cardColor: Color,
     label: String,
     trailing: String,

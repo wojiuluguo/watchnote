@@ -3,7 +3,7 @@
 给小米 Watch 5（Wear OS，480×480 圆屏）做的免费手表笔记应用：记作业、记事情、课程表、倒计时，配中国传统色主题，并带一套可扩展的插件系统。
 
 - 包名：`com.ioo.watchnote`
-- 当前版本：**4.1.26（versionCode 135）**
+- 当前版本：**4.1.27（versionCode 136）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
 ## 支持作者
@@ -18,17 +18,17 @@
 
 ## 下载与安装（Releases）
 
-最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.26（versionCode 135）**：
+最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.27（versionCode 136）**：
 
 | 附件 | 说明 |
 | --- | --- |
-| [watchnote-4.1.26-135.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.26/watchnote-4.1.26-135.apk) | 腕记 Beta 4.1.26，安装到手表/手机（Android 8.0+） |
-| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.26/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
-| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.26/page-demo.wplugin) | 示例页面插件：带一个页面，点「计数加一」数字实时变 |
+| [watchnote-4.1.27-136.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.27/watchnote-4.1.27-136.apk) | 腕记 Beta 4.1.27（插件模块 0.2：整套官方 UI 变成插件 API），安装到手表/手机（Android 8.0+） |
+| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.27/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
+| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.27/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
 
 4.1.26 起可以在手表里直接查新版：**关于 → 详细信息 → 检查更新**（进页面时若距上次超过 24 小时会自动查一次，平时不联网）。有新版会显示版本号和更新介绍，点下载会存到 Download 目录并显示进度条，装的时候手动点 APK 安装。
 
-安装后先别找插件：4.1.24 起插件模块**默认隐藏**，默认只加载官方主题颜色。要装插件先到「设置 → 关于 → 详细信息」，对版本号连点三下开启插件模块（再连点三下关闭），之后「关于」页会多出「插件自检」，确认插件自检 32/32 通过。插件安装见下文「插件系统」。
+安装后先别找插件：4.1.24 起插件模块**默认隐藏**，默认只加载官方主题颜色。要装插件先到「设置 → 关于 → 详细信息」，对版本号连点三下开启插件模块（再连点三下关闭），之后「关于」页会多出「插件自检」，确认插件自检 34/34 通过。插件安装见下文「插件系统」。
 
 ## 页面
 
@@ -45,11 +45,12 @@
 - **三个插槽**：`PAGE_BOTTOM`（页面底部小圆按钮）、`SETTINGS_ROW`（设置页行）、`CARD_ACTION`（卡片右侧动作），各最多 2 个
 - **外置插件**：`.wplugin` 包（zip，内含 `plugin.json` 清单 + 代码/资源），支持安装确认、降级拒绝、连续失败熔断（3 次）
 - **安装方式**：系统文件选择器选包 / 手机浏览器传包 / 手表上按网址下载
-- **声明式页面**：4.1.21 起外置插件也能带页面（`SimplePage`：插件只交统计行/按钮行和一个回调，宿主用官方组件渲染，Java + d8 就能编）；4.1.22 起 `SimplePage.render(...)` 让页面按最新数据重画（宿主每次重画都重跑回调，数字不会停在装上的那一刻）
+- **声明式页面**：4.1.21 起外置插件也能带页面（`SimplePage`：插件只交行数据和一个回调，宿主用官方组件渲染，Java + d8 就能编）；4.1.22 起 `SimplePage.render(...)` 让页面按最新数据重画（宿主每次重画都重跑回调，数字不会停在装上的那一刻）
+- **官方 UI 全开（0.2 / 4.1.27）**：`SimplePage` 从 2 种行扩到 17 种——小节标题、说明、大数字、两行列表、按钮、进度条、进度环、数值步进、选项排、颜色卡、时间卡、开关、分割线、空白、空状态、柱状图；Kotlin 侧 `Official.*` 同名函数补齐，两边同一份宿主实现。带参数行的回调编号是契约（选项 `id:i`、步进 `id:+步长`/`id:-步长`、开关 `id:on`/`id:off`），`PluginApi.API_LEVEL` 升到 2，插件用 `minApi 2` 声明，老宿主安装前明确拒绝
 - **可选签名**：插件可用 ECDSA P-256 作者签名，宿主记录但非强制
 - **能加就能收**：插件注册的页面和按钮都挂在 pluginId 名下，关闭/卸载一键收回
 - **数据隔离**：每个插件的数据存在自己的 `watchnote_plugin_<id>` 里，卸载只清自己的
-- **插件自检**（需先开启插件模块）：关于 → 插件自检，32 项覆盖插件清单校验、加载器、插槽渲染、外置插件真加载 / 真安装、外置插件 ABI 类名是否被混淆、声明式页面注册与页面型示例包真装，以及页面按最新数据重画 / 渲染出错退回静态行
+- **插件自检**（需先开启插件模块）：关于 → 插件自检，34 项覆盖插件清单校验、加载器、插槽渲染、外置插件真加载 / 真安装、外置插件 ABI 类名是否被混淆、声明式页面注册与页面型示例包真装、页面按最新数据重画 / 渲染出错退回静态行，以及 17 种官方 UI 行的数据保留与点按编号约定
 
 插件目录：`app/src/main/java/com/ioo/watchnote/plugin/`（含 `external/` 下的外置插件清单与安装器）
 
@@ -69,10 +70,11 @@ gradle --offline --console=plain :app:assembleRelease
 
 ## 文档
 
-- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.26 的更新记录
+- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.27 的更新记录
 - [docs/最终版施工计划.md](docs/最终版施工计划.md)：最终版各 Step 的施工计划
 - [docs/插件模块-版本说明.md](docs/插件模块-版本说明.md)：插件系统逐版说明
 - [docs/插件模块-API设计.md](docs/插件模块-API设计.md)：插件 API 设计与硬规则
 - [docs/插件外置化-v2设计.md](docs/插件外置化-v2设计.md)：外置 `.wplugin` 加载器设计
-- [docs/插件作者手册.md](docs/插件作者手册.md)：写插件的手册
+- [docs/插件作者手册.md](docs/插件作者手册.md)：写插件的手册（含「官方 UI 行」17 种行的表格与回调编号）
+- [docs/插件API扩展建议.md](docs/插件API扩展建议.md)：下一批 API 该开哪些、不该开哪些
 - [docs/external-sample/](docs/external-sample/)：插件示例源码与打包/签名脚本

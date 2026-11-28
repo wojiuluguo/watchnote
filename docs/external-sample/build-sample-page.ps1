@@ -1,4 +1,4 @@
-# 把 docs/external-sample/PagePlugin.java 打成 assets/plugins/page-demo.wplugin
+# 把 docs/external-sample/PagePlugin.java 打成 assets/plugins/page-demo.wplugin（插件模块 0.2，minApi 2）
 # 需要先构建一次宿主（:app:assembleRelease），因为要拿带 SimplePage 的宿主 classes。
 # 用法：pwsh -File build-sample-page.ps1   （需要在 WristNote-v5 目录下跑）
 $ErrorActionPreference = "Stop"
@@ -23,12 +23,12 @@ $manifest = @'
   "schemaVersion": 1,
   "id": "com.example.page",
   "name": "示例页面插件",
-  "version": 2,
-  "minApi": 1,
+  "version": 3,
+  "minApi": 2,
   "entryClass": "com.example.page.PagePlugin",
   "permissions": ["READ_NOTES"],
   "author": "腕记",
-  "description": "页面型外置插件样例：注册一个页面（宿主负责画）+ 设置页一行入口。"
+  "description": "页面型外置插件样例（插件模块 0.2）：整套官方 UI 行 + 设置页一行入口。"
 }
 '@
 [System.IO.File]::WriteAllText("$work\pkg\plugin.json", $manifest, (New-Object System.Text.UTF8Encoding($false)))

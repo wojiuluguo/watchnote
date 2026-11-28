@@ -94,17 +94,6 @@ private fun SimplePageContent(page: SimplePage, scope: PageScope, revision: Int)
     // 没有 renderer 的页面就是注册时的静态行，行为和 4.1.21 完全一样。
     val snapshot = remember(page, revision) { page.renderOnce() }
     Official.Page(title = page.title, sub = snapshot.subtitle, onBack = { scope.close() }) {
-        snapshot.rows.forEach { row ->
-            when (row.kind) {
-                SimpleRowKind.STAT -> Official.Stat(row.label, row.value)
-                SimpleRowKind.BUTTON -> Official.Button(
-                    symbol = row.symbol.ifEmpty { "▸" },
-                    label = row.label,
-                    trailing = row.value.ifEmpty { null },
-                    danger = row.danger,
-                    onClick = { page.dispatch(row.actionId) },
-                )
-            }
-        }
+        snapshot.rows.forEach { row -> SimpleRowView(row, page) }
     }
 }

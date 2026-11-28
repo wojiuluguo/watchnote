@@ -25,9 +25,10 @@
 > 外置插件 ABI 稳定：release 整体 `-dontobfuscate` 并钉死插件运行时类，自测第 28 项点名检查这些类没被改名（4.1.20 / versionCode 129）；
 > **声明式页面** `SimplePage`（+ `SimpleAction`）：插件只交统计行/按钮行和一个回调，宿主用 `Official.Page/Stat/Button` 渲染，Java + d8 编的外置插件也能带页面；新增 PageRegistry.add(SimplePage)、内置第二个示例包 page-demo.wplugin、自测第 29/30 项（4.1.21 / versionCode 130）；
 > 声明式页面可**按最新数据重画**：新增 `SimplePage.render(SimplePageRenderer)`，PluginCore 加 `revision` Compose 状态使 invalidate() 后插件页面必然重画，renderer 抛异常退回静态行；示例插件 PagePlugin 改用 render，自测第 31/32 项（4.1.22 / versionCode 131）；
-> 插件模块默认隐藏：`PluginPrefs.plugin_module_enabled` 默认 false，关闭时只加载官方主题颜色插件、设置页不显示「插件」行，关于 → 详细信息对版本号连点三下开启（落盘），开启后显示插件模块版本 `PluginApi.MODULE_VERSION = 0.1`（测试版），并多出「插件自检」入口（4.1.23 / versionCode 132）；
-> 插件模块开关改成双向（已开启时再连点三下即关闭，用 `pluginCore.disable` 收走界面但保留插件数据）；所有确认弹窗从官方 Wear `AlertDialog` 改为自绘 `Dialog`——官方组件会经 `ScalingLazyColumn` 触达 `com.google.wear.input.WearHapticFeedbackConstants`，小米手表缺这个类，一点确认就 `NoClassDefFoundError` 闪退（4.1.24 / versionCode 133）。
-> 4.1.26 / versionCode 135：只加了 App 内检查更新（关于 → 详细信息 → 检查更新，GitHub Releases 数据源 + 下载进度条），**插件 API 没有任何变化**，自测仍 32 项。
+> 关于页改版 + 插件模块默认隐藏（三连点版本号开启，`plugin_module_enabled` 落盘）（4.1.23 / versionCode 132）；
+> 确认弹窗由官方 Wear AlertDialog 换成自绘（小米缺 `WearHapticFeedbackConstants` 会闪退），随后外观还原成大圆 ✕/✓ 按钮（4.1.24 / 133、4.1.25 / 134）；
+> App 内检查更新（GitHub Releases latest + 说明 + 下载进度条，启动不联网）（4.1.26 / 135）；
+> **插件模块 0.2**：把宿主在用的官方 UI 全部封成插件 API——`SimplePage` 扩充到 17 种行（section/note/hero/item/progress/ring/stepper/chips/colorCard/timeCard/toggle/divider/space/empty/bars）并给 Kotlin 侧补齐同名 `Official.*`，带参数行的回调编号定死（`id:序号` / `id:±步` / `id:on|off`），`PluginApi.API_LEVEL` 1→2、`MODULE_VERSION` 0.1→0.2，自测 34 项（4.1.27 / versionCode 136）。
 
 ## 一句话结论
 
@@ -216,6 +217,31 @@ install 抛异常 = 安装失败，宿主回滚这个插件注册过的全部内
 这就是「有些按钮直接引用官方」：用的是宿主同一份实现，
 圆屏安全区、主题色、字号、点击反馈全自动跟着走，插件不可能画走样。
 
+**0.2（4.1.27 起）把宿主在用的官方 UI 全部开了出来**，Kotlin 用 `Official.*`，
+Java 外置插件用 `SimplePage` 的链式行方法（同一份实现，见下一节）：
+
+    fun Section(text)                                  // 小节标题
+    fun Note(text)                                     // 说明文字
+    fun Hero(label, value, sub = null)                 // 大号数字主指标
+    fun Item(symbol, title, sub = null, trailing = null, onClick = null)   // 两行列表行
+    fun Progress(label, value: Long, total: Long, trailing = null)         // 横向进度条
+    fun Ring(label, value: Long, total: Long)                              // 环形进度
+    fun Stepper(label, value, min = 0, max = 999, step = 1, onChange: (Int) -> Unit)
+    fun Chips(label, options: List<String>, selected, onSelect: (Int) -> Unit)
+    fun ColorCard(label, colorHex, trailing = "", active = false, onClick)
+    fun TimeCard(start: Long, end: Long, trailing = null, onClick = null)
+    fun Toggle(label, on: Boolean, onToggle: (Boolean) -> Unit)
+    fun Divider() / fun Space(height: Int) / fun Empty(text)
+    fun Bars(label, values: List<Float>, trailing = null)                  // 柱状图
+
+行本身还是「宿主画」，所以 0.2 开的不是自由度，而是**可表达的数据类型**。
+带参数行的回调编号是 API 契约的一部分（写进作者手册，自测第 34 项锁住）：
+选项行 `id:i`、步进行 `id:+步长` / `id:-步长`、开关行 `id:on` / `id:off`。
+
+**API_LEVEL 为什么升到 2**：这些行对 `SimpleRowKind` / `SimpleRow` / `Official` 都加了东西，
+插件如果 `minApi = 2`，老宿主（API_LEVEL 1）会在安装前被明确拒绝，而不是装上去运行期
+`NoSuchMethodError`——这正是 `minApi` 存在的意义。
+
 ### 7. 外置插件清单（v2 契约，4.1.9 起）
 
 v2 要让用户自己装 `.wplugin` 插件，先得把「插件包长什么样」定死。4.1.9 只做**清单校验**，不做加载
@@ -269,6 +295,30 @@ when (result) {
 - 这条不算插件 API 扩展（没有新增可调用方法），是宿主对 `page()` 的兜底入口；
   插件想同时放设置行、页面底部按钮也照旧。
 
+### 2.5 声明式页面 SimplePage（4.1.21 起，0.2 扩到 17 种行）
+
+外置插件是独立编译的，没有 Compose 编译器，所以给它们的页面不能是 `@Composable content`，
+只能是**声明式行**：插件交「有哪些行、每行什么数据、点按回调 id」，宿主负责画。
+
+    host.pages.add(
+        SimplePage(manifest.id + ":main", "我的页面")   // id 规则同 PageSpec（必须带插件前缀）
+            .sub("副标题")                               // 可选
+            .section("主指标")
+            .hero("计数", "42", "点下面加一")
+            .progress("今日进度", 3, 10)
+            .stepper("杯数", 3, 0, 20, 1, "cups")        // 点 ＋ 收到 "cups:+1"
+            .button("＋", "计数加一", "共 42 次", "inc")
+            .onAction { actionId -> /* 拆 id，改数据，host.invalidate() */ }
+            .render { p -> /* 4.1.22 起：每次重画重跑，行取最新数据 */ }
+    )
+
+- 行方法见上一节表格；行只是数据，所以「页面长什么样」完全由宿主决定——插件装多少种行都不会画走样。
+- `onAction` 收 `String`（Java 直接 lambda，不用 `kotlin.Unit`）；`render` 每次宿主重画都会重跑，
+  里面只读数据、只写行，别 toast / 改数据 / 开页面（会被重画重复触发）。
+- renderer 抛异常时退回注册时的静态行，页面不白不崩（自测第 32 项）。
+- 页面配额、id 前缀、卸载回收和 `PageSpec` 完全一样（每插件最多 3 页）。
+
+
 ## 代码在哪
 
     app/src/main/java/com/ioo/watchnote/plugin/
@@ -286,7 +336,8 @@ when (result) {
       PluginPageHost.kt      宿主渲染插件页（导航、返回、空页兜底、底部按钮插槽）
       PluginUi.kt            三个按钮插槽的宿主渲染层（底部小圆按钮 / 设置行 / 卡片动作）
       PluginKvStore.kt       插件 kv 的落盘实现（一个插件一个偏好文件）
-      Official.kt            官方组件门面：Page / Title / Stat / Button / Confirm
+      Official.kt            官方组件门面：Page / Title / Stat / Button / Confirm + 0.2 的 15 个官方 UI 行
+      OfficialWidgets.kt     0.2 的官方 UI 行实现 + SimpleRowView（按 SimpleRowKind 分派到 Official.*）
       PluginSelfTest.kt      插件系统自测（25 项，见「自测」一节）
       PluginPrefs.kt         插件开关的落盘状态（关掉的插件下次启动不 install）
       BuiltinPlugins.kt      内置插件目录：加插件只往这里加一行

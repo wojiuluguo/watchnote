@@ -626,6 +626,10 @@ object PluginSelfTest {
                 "com.ioo.watchnote.plugin.ButtonSlot",
                 "com.ioo.watchnote.plugin.PluginManifest",
                 "com.ioo.watchnote.plugin.ButtonRegistry",
+                // 0.2 新增的官方 UI 门面：Java 插件按名字调这些方法，名字一改就 NoSuchMethodError
+                "com.ioo.watchnote.plugin.Official",
+                "com.ioo.watchnote.plugin.SimpleRowKind",
+                "com.ioo.watchnote.plugin.PluginApi",
             )
             val missing = required.filter { name ->
                 runCatching {
@@ -699,6 +703,84 @@ object PluginSelfTest {
             val snapshot = page.renderOnce()
             if (snapshot.rows.size != 1) return@check "渲染出错后行数不对：" + snapshot.rows.size
             if (snapshot.rows[0].label != "静态行") "渲染出错没退回静态行" else null
+        }
+
+        // 33. 0.2 的官方 UI 行类型：section/note/hero/item/progress/ring/stepper/chips/colorCard/
+        //     timeCard/toggle/divider/space/empty/bars —— 这些方法就是 Java 插件的「官方组件 API」。
+        //     少一个、参数接错、renderer 里不能用，都算这条失败。
+        check("官方 UI 行类型都能注册并保留数据") {
+            val page = SimplePage(id = "test.rows:page", title = "行类型")
+                .section("小节")
+                .note("说明")
+                .hero("大数字", "42", "副标题")
+                .item("▸", "两行", "第二行", "右侧", "itemTap")
+                .progress("进度", 3L, 10L)
+                .ring("环", 30L, 100L)
+                .stepper("步进", 2, 0, 10, 2, "step")
+                .chips("选项", listOf("A", "B", "C"), 1, "chip")
+                .colorCard("颜色", "#7C4DFF", "使用中", true, "color")
+                .timeCard(1_700_000_000_000L, 1_700_003_600_000L, "改时间", "time")
+                .toggle("开关", true, "toggle")
+                .divider()
+                .space(8)
+                .empty("空")
+                .bars("柱", listOf(1f, 5f, 3f), "峰值 5")
+            val rows = page.renderOnce().rows
+            if (rows.size != 15) return@check "行数不对：" + rows.size
+            val expect = setOf(
+                SimpleRowKind.SECTION, SimpleRowKind.NOTE, SimpleRowKind.HERO, SimpleRowKind.ITEM,
+                SimpleRowKind.PROGRESS, SimpleRowKind.RING, SimpleRowKind.STEPPER, SimpleRowKind.CHIPS,
+                SimpleRowKind.COLOR, SimpleRowKind.TIME, SimpleRowKind.TOGGLE, SimpleRowKind.DIVIDER,
+                SimpleRowKind.SPACE, SimpleRowKind.EMPTY, SimpleRowKind.BARS,
+            )
+            if (rows.map { it.kind }.toSet() != expect) return@check "行类型不全：" + rows.map { it.kind }
+            val progress = rows.first { it.kind == SimpleRowKind.PROGRESS }
+            if (progress.done != 3L || progress.total != 10L) return@check "进度行的数值不对"
+            val stepper = rows.first { it.kind == SimpleRowKind.STEPPER }
+            if (stepper.current != 2 || stepper.min != 0 || stepper.max != 10 || stepper.step != 2) {
+                return@check "步进行的数值不对"
+            }
+            val chips = rows.first { it.kind == SimpleRowKind.CHIPS }
+            if (chips.options.size != 3 || chips.selected != 1) return@check "选项行的数据不对"
+            val color = rows.first { it.kind == SimpleRowKind.COLOR }
+            if (!color.colorHex.equals("#7C4DFF", ignoreCase = true) || !color.active) return@check "颜色行不对"
+            val time = rows.first { it.kind == SimpleRowKind.TIME }
+            if (time.start != 1_700_000_000_000L || time.end != 1_700_003_600_000L) return@check "时间行不对"
+            val space = rows.first { it.kind == SimpleRowKind.SPACE }
+            if (space.amount != 8) return@check "空白行高度不对：" + space.amount
+            val bars = rows.first { it.kind == SimpleRowKind.BARS }
+            if (bars.numbers.size != 3) return@check "柱状行数据不对"
+
+            // renderer 里也必须能写 0.2 的新行（动态页面），不能只有静态页能用。
+            var clicks = 0
+            val dynamic = SimplePage(id = "test.rows:dynamic", title = "动态").render { p ->
+                p.hero("计数", clicks.toString())
+                p.progress("进度", clicks.toLong(), 10L)
+            }
+            clicks = 7
+            val dynRows = dynamic.renderOnce().rows
+            if (dynRows.size != 2) return@check "renderer 里新行数不对：" + dynRows.size
+            if (dynRows[0].value != "7") "renderer 里的大数字没跟最新数据" else null
+        }
+
+        // 34. 带参数的行的回调编号约定：选项行 "id:序号"、步进行 "id:+增量"/"id:-增量"、
+        //     开关行 "id:on"/"id:off"，普通行就是原样 id。这个约定写进作者手册了，
+        //     改协议等于让所有插件作者的点按逻辑失效，所以锁进自测。
+        check("官方 UI 行的点按编号约定") {
+            var got = ""
+            val page = SimplePage(id = "test.rows:act", title = "回调").onAction { got = it }
+            page.dispatchIndexed("chip", 2)
+            if (got != "chip:2") return@check "选项行编号不对：" + got
+            page.dispatchDelta("step", 1)
+            if (got != "step:+1") return@check "步进行加号不对：" + got
+            page.dispatchDelta("step", -1)
+            if (got != "step:-1") return@check "步进行减号不对：" + got
+            page.dispatchToggle("toggle", true)
+            if (got != "toggle:on") return@check "开关行开不对：" + got
+            page.dispatchToggle("toggle", false)
+            if (got != "toggle:off") return@check "开关行关不对：" + got
+            page.dispatch("plain")
+            if (got != "plain") "普通行回调被改了：" + got else null
         }
 
         return results
