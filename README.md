@@ -3,26 +3,22 @@
 给小米 Watch 5（Wear OS，480×480 圆屏）做的免费手表笔记应用：记作业、记事情、课程表、倒计时，配中国传统色主题，并带一套可扩展的插件系统。
 
 - 包名：`com.ioo.watchnote`
-- 当前版本：**4.1.33（versionCode 142）**
+- 当前版本：**4.1.34（versionCode 143）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
-## 最近更新（4.1.26 → 4.1.33）
+## 最近更新（4.1.34 · 插件模块 0.4.5）
 
-【先向所有用户道个歉】 4.1.27 及以前，「检查更新」能查到新版、也能下载，但安装包只落在系统下载目录，而手表上没有文件管理器，等于一次也没真正装成。是我把安装这一步想简单了。4.1.28 起改为存到 App 私有目录，下载完直接拉起系统安装界面（第一次开「允许腕记安装应用」），从这一版起更新链路才真正走得通。
+【插件能自己排界面了】 新页面类型 `UIPage` 是一棵容器树：横排、竖排、叠放、分组、网格、滚动，内边距、间距、对齐、权重都自己定。两种排布同时成立——容器里按顺序自动从上往下，也能表达「这是第几个」「属于哪个容器」。老的 18 种官方行照旧能用，同一个页面里可以混着来。
 
-【插件模块 0.1 到 0.4】 这是 4.1.26 之后唯一大改的部分，其它功能没动，笔记、办事、课程表、设置和以前一样。
+【画布：画一个按钮，也画一整页】 元素画布 `Ui.canvas(56) { pen -> ... }` 跟官方行同层，用来画环形图、仪表盘、自己画的按钮；整页画布 `Ui.fillCanvas { ... }` 配 `page.fullPage()` 连标题都不要，整页自己画。画笔有 clear / rect / circle / line / arc / path / text，坐标归一化，颜色可写十六进制或主题色名，换主题自动跟着变；支持点击与拖动回调，回调里能调完整宿主 API。**画布不是开关**：官方行、画布、第三方插件组件在同一层混排，不存在「选了画布就没 API」。
 
-【官方 UI 行从 2 种到 17 种】 外置插件能用的行从「统计行 + 按钮行」两种，扩到小节标题、说明、大数字、两行列表、按钮、进度条、进度环、数值步进、选项排、颜色卡、时间卡、开关、分割线、留白、空状态、柱状图；Kotlin 侧 `Official.*` 同名函数补齐，两边同一份宿主实现。插件只交数据和声明，界面由宿主渲染，所以插件再多也不会把页面搞乱。
+【联网渠道 host.net()】 插件终于能联网：`get / post / request`，回调回主线程。只放行 http/https，拒本机与内网，响应上限 256KB，超时 5~30 秒，每插件 30 次/分、并发 2，离开页面就取消，请求带插件 id。要在清单里声明 `"permissions": ["net"]` 才生效。诚实说明：外置插件是普通 Java 字节码，技术上拦不住它自己开 socket，「唯一渠道」靠的是只提供这一条 API + 安装时写明 + 日志 + 审核，不是沙箱。
 
-【前置模块：插件可以有自己的 API】 新增 lib 型插件，只提供能力、不占任何界面，别的插件用 `requires` 声明依赖它。缺前置会拒绝安装，别的插件还在用时拒绝卸载前置。
+【插件主页面与指示栏第 6 格】 插件可以申请一整页当主页面（`asMainPage()`）。只有 1 个时，左边指示栏从 5 格变 6 格，第 6 格就是它；有 2 个以上时第 6 格变成「插件页面」抽屉，列全部插件主页；一个都没有就还是 5 格。卸载 / 停用插件，主页自动消失，指示栏退回 5 格，不留空页。
 
-【SHAPE 形状行】 新增三角形、星形、菱形、六边形四种形状，示例是 shapekit（前置，负责绘制）加 triangle（依赖前置，整页显示形状，点一下换形状）。
+【为什么这一版叫 0.4.5，不叫 0.5】 0.5 的验收线里有一条还没做到：**插件要能改腕记自己的官方页面**——官方页面的布置、按钮样式都能被插件改。那需要官方页面结构可注入、多插件冲突仲裁、一键回退，工程量和风险都不是这一版能塞进去的。所以这一版只把「插件自己的页面能有多自由」交到位，版本号停在 0.4.5；等官方页面也能被插件修改了，才叫 0.5。这段话在 App 里也写了：关于 → 详细信息、插件页底部各一段。
 
-【插件页重排】 插件页现在只两个入口——官方插件、第三方插件；正在运行、注册表、导入方法这些放进从上往下滑的「更多信息」里。
-
-【设置页配额】 第三方插件在设置页固定留 2 行（整页上限 4 行），不会再被官方插件占满；每个插件在每个插槽最多 2 个。
-
-【插件自检 40 项全绿】 关于 → 插件自检覆盖清单校验、加载器、插槽渲染、外置插件真加载 / 真安装、声明式页面、17 种 UI 行的参数约定、前置模块五连，以及示例包真装一遍。此前「设置页占满导致示例包装不上」会误报为红项，现在会说明是容量规则生效，不再假红。
+之前的 0.1 → 0.4 更新说明（官方 UI 行从 2 种到 17 种、前置模块、SHAPE 形状行、插件页重排、设置页配额、插件自检 40 项）见 [docs/版本历史.md](docs/版本历史.md)。
 
 ## 支持作者
 
@@ -36,18 +32,18 @@
 
 ## 下载与安装（Releases）
 
-最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.33（versionCode 142）**：
+最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.34（versionCode 143）**：
 
 | 附件 | 说明 |
 | --- | --- |
-| [watchnote-4.1.33-142.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/watchnote-4.1.33-142.apk) | 腕记 Beta 4.1.33（插件模块 0.4：声明式插槽 + 前置模块 + 官方 SHAPE 形状行；插件页拆成「官方插件 / 第三方插件」，下滑看更多信息；修设置页注册配额与自检假红），安装到手表/手机（Android 8.0+） |
-| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
-| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
-| [uikit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/uikit.wplugin) | 示例**前置模块**（lib 型，minApi 3）：不占界面，提供 `com.example.uikit.FrontKit`（时间格式化、百分比、大数字、进度环） |
-| [frontui.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/frontui.wplugin) | 示例**依赖前置的 UI 插件**（minApi 3，requires uikit>=1）：用 FrontKit 画页面，前置不可用时退回官方组件 |
-| [frontalgo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/frontalgo.wplugin) | 示例**依赖前置的算法插件**（minApi 3，requires uikit>=1）：用 FrontKit 算笔记字数估阅读时长 |
-| [shapekit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/shapekit.wplugin) | 示例**前置模块**（lib 型，minApi 4）：提供 `com.example.shapekit.ShapeKit`（三角形/星形/菱形/六边形绘制） |
-| [triangle.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.33/triangle.wplugin) | 示例**依赖前置的 SHAPE 插件**（minApi 4，requires shapekit>=1）：整页显示三角形，点一下换形状、按色环变色；先装 shapekit 再装这个 |
+| [watchnote-4.1.34-143.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/watchnote-4.1.34-143.apk) | 腕记 Beta 4.1.34（插件模块 0.4.5：布局容器树 + 元素/整页画布 + 联网渠道 host.net() + 插件主页面/指示栏第 6 格），安装到手表/手机（Android 8.0+） |
+| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
+| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
+| [uikit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/uikit.wplugin) | 示例**前置模块**（lib 型，minApi 3）：不占界面，提供 `com.example.uikit.FrontKit`（时间格式化、百分比、大数字、进度环） |
+| [frontui.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/frontui.wplugin) | 示例**依赖前置的 UI 插件**（minApi 3，requires uikit>=1）：用 FrontKit 画页面，前置不可用时退回官方组件 |
+| [frontalgo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/frontalgo.wplugin) | 示例**依赖前置的算法插件**（minApi 3，requires uikit>=1）：用 FrontKit 算笔记字数估阅读时长 |
+| [shapekit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/shapekit.wplugin) | 示例**前置模块**（lib 型，minApi 4）：提供 `com.example.shapekit.ShapeKit`（三角形/星形/菱形/六边形绘制） |
+| [triangle.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/triangle.wplugin) | 示例**依赖前置的 SHAPE 插件**（minApi 4，requires shapekit>=1）：整页显示三角形，点一下换形状、按色环变色；先装 shapekit 再装这个 |
 
 4.1.26 起可以在手表里直接查新版：**关于 → 详细信息 → 检查更新**（进页面时若距上次超过 24 小时会自动查一次，平时不联网）。有新版会显示版本号和更新介绍，点下载有进度条；**4.1.28 起下载完会直接弹出系统安装界面**——手表上没有文件管理器，不用再自己去找 APK。第一次装会先跳到「允许腕记安装应用」开关，打开后回来点一次「安装这个版本」即可。
 
@@ -93,7 +89,7 @@ gradle --offline --console=plain :app:assembleRelease
 
 ## 文档
 
-- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.33 的更新记录
+- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.34 的更新记录
 - [docs/最终版施工计划.md](docs/最终版施工计划.md)：最终版各 Step 的施工计划
 - [docs/插件模块-版本说明.md](docs/插件模块-版本说明.md)：插件系统逐版说明
 - [docs/插件模块-API设计.md](docs/插件模块-API设计.md)：插件 API 设计与硬规则
