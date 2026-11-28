@@ -181,19 +181,26 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
     }
 
     /** 自带示例插件的预览（只给确认弹窗看，不装）。 */
-    fun previewBundledSample(): ExternalPreviewResult {
-        val temp = File(appContext.cacheDir, "bundled-sample-preview.wplugin")
+    fun previewBundledSample(): ExternalPreviewResult = previewBundledAsset(BUNDLED_SAMPLE)
+
+    /** 预览 APK 里任意一个自带包（示例、前置、测试插件都走这一条）。 */
+    fun previewBundledAsset(asset: String): ExternalPreviewResult {
+        val temp = File(appContext.cacheDir, "bundled-preview-" + asset.substringAfterLast('/'))
         return try {
-            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+            appContext.assets.open(asset).use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
             }
             preview(temp)
         } catch (t: Throwable) {
-            ExternalPreviewResult.Failed("读不到内置示例插件：" + (t.message ?: "assets 里没有 " + BUNDLED_SAMPLE))
+            ExternalPreviewResult.Failed("读不到内置插件：" + (t.message ?: "assets 里没有 " + asset))
         } finally {
             temp.delete()
         }
     }
+
+    /** 一次把多个自带包都预览出来（给「安装测试插件」的确认清单用）。 */
+    fun previewBundledAssets(assets: List<String>): List<ExternalPreviewResult> =
+        assets.map { previewBundledAsset(it) }
 
     /** 从文件装（升级同一个 id 时保留插件私有数据）。 */
     fun installFromFile(file: File): ExternalInstallResult {
@@ -295,15 +302,18 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
     }
 
     /** 装 APK 里自带的示例插件（不需要任何文件传输，验证整条加载链路）。 */
-    fun installBundledSample(): ExternalInstallResult {
-        val temp = File(appContext.cacheDir, "bundled-sample.wplugin")
+    fun installBundledSample(): ExternalInstallResult = installBundledAsset(BUNDLED_SAMPLE)
+
+    /** 装 APK 里任意一个自带包。 */
+    fun installBundledAsset(asset: String): ExternalInstallResult {
+        val temp = File(appContext.cacheDir, "bundled-" + asset.substringAfterLast('/'))
         return try {
-            appContext.assets.open(BUNDLED_SAMPLE).use { input ->
+            appContext.assets.open(asset).use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
             }
             installFromFile(temp)
         } catch (t: Throwable) {
-            ExternalInstallResult.Failed("读不到内置示例插件：" + (t.message ?: "assets 里没有 " + BUNDLED_SAMPLE))
+            ExternalInstallResult.Failed("读不到内置插件：" + (t.message ?: "assets 里没有 " + asset))
         } finally {
             temp.delete()
         }
@@ -787,6 +797,10 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         const val FRONT_KIT_SAMPLE = "plugins/uikit.wplugin"
         const val FRONT_UI_SAMPLE = "plugins/frontui.wplugin"
         const val FRONT_ALGO_SAMPLE = "plugins/frontalgo.wplugin"
+        /** 4.1.35 起的两个「全能力测试包」：一个测界面（容器树/16 种组件/画布），一个测数据（笔记/事件/存储/联网/三种按钮槽）。 */
+        const val TEST_UI_SAMPLE = "plugins/testui.wplugin"
+        const val TEST_DATA_SAMPLE = "plugins/testdata.wplugin"
+        val BUNDLED_TESTS: List<String> = listOf(TEST_UI_SAMPLE, TEST_DATA_SAMPLE)
         /** 前置依赖最多嵌套几层（A 依赖 B、B 再依赖 C），防环、防死循环。 */
         private const val MAX_DEPENDENCY_DEPTH = 4
         private const val PREFS_NAME = "watchnote_external_plugins"

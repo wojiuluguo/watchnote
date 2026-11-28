@@ -3,10 +3,22 @@
 给小米 Watch 5（Wear OS，480×480 圆屏）做的免费手表笔记应用：记作业、记事情、课程表、倒计时，配中国传统色主题，并带一套可扩展的插件系统。
 
 - 包名：`com.ioo.watchnote`
-- 当前版本：**4.1.34（versionCode 143）**
+- 当前版本：**4.1.35（versionCode 144）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
-## 最近更新（4.1.34 · 插件模块 0.4.5）
+## 最近更新（4.1.35 · 0.4.5 收尾 + 两个手动测试插件）
+
+【装上就能验一遍】 「插件管理 → 第三方插件」多了一行**安装测试插件（2 个）**，一次装两个官方自带包：**界面全测**（`com.example.testui`）和**数据全测**（`com.example.testdata`）。这两个包不是给日常用的，是把手表当验收台：界面全测把容器树、17 种官方组件、元素画布 / 整页画布 / 画布点击拖动、三个按钮插槽全摆出来，第 3 页还是 `asMainPage()` 的整页自绘表盘（装上后指示栏变 6 格，点第 6 格就能看见「插件主页面」到底长什么样）；数据全测把笔记 / 标签 / 键值存储、事件订阅与反注册、前置模块查询、`host.net` 的三条通路加五条拦截路径（本机、内网、非 http、解析失败、关掉联网）挨个点一遍。她手表上没有文件管理器，所以这两个包直接打在 APK 里，不用拷文件。
+
+【这三处是 0.4.5 的补丁，写插件的人要知道】
+
+1. **`timeCard` 收两种写法**：以前只能喂毫秒时间戳，现在直接写 `timeCard("09:30", "18:00")` 也行，宿主按当天时钟换算；传纯数字仍按毫秒算，老包不用改。
+2. **整页页有返回键了**：`fullPage()` 的页面以前只盖一层 `Box`、连返回都不画，只能靠系统手势退出。现在宿主在左上角叠一颗 34dp 圆底「←」；`asMainPage()` 的主页面不画（那一页靠指示栏左右滑走）。
+3. **普通页里的 `Ui.scroll()` 不再嵌套滚动**：普通页内容本身就在官方页面的可滚动容器里，再套一层 `verticalScroll` 会撞上 Compose 的「measured with infinity maximum height」直接崩。现在普通页传 `allowScroll = false`，`scroll` 退化成普通 `column`（照样能滚，靠外层）；只有 `fullPage()` 里的 `scroll` 才是真内嵌滚动。
+
+下面是 0.4.5 主体（4.1.34 首发）的内容，4.1.35 未改动：
+
+## 0.4.5 主体（4.1.34 · 插件模块 0.4.5）
 
 【插件能自己排界面了】 新页面类型 `UIPage` 是一棵容器树：横排、竖排、叠放、分组、网格、滚动，内边距、间距、对齐、权重都自己定。两种排布同时成立——容器里按顺序自动从上往下，也能表达「这是第几个」「属于哪个容器」。老的 18 种官方行照旧能用，同一个页面里可以混着来。
 
@@ -34,18 +46,20 @@
 
 ## 下载与安装（Releases）
 
-最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.34（versionCode 143）**：
+最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.35（versionCode 144）**：
 
 | 附件 | 说明 |
 | --- | --- |
-| [watchnote-4.1.34-143.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/watchnote-4.1.34-143.apk) | 腕记 Beta 4.1.34（插件模块 0.4.5：布局容器树 + 元素/整页画布 + 联网渠道 host.net() + 插件主页面/指示栏第 6 格），安装到手表/手机（Android 8.0+） |
-| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
-| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
-| [uikit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/uikit.wplugin) | 示例**前置模块**（lib 型，minApi 3）：不占界面，提供 `com.example.uikit.FrontKit`（时间格式化、百分比、大数字、进度环） |
-| [frontui.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/frontui.wplugin) | 示例**依赖前置的 UI 插件**（minApi 3，requires uikit>=1）：用 FrontKit 画页面，前置不可用时退回官方组件 |
-| [frontalgo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/frontalgo.wplugin) | 示例**依赖前置的算法插件**（minApi 3，requires uikit>=1）：用 FrontKit 算笔记字数估阅读时长 |
-| [shapekit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/shapekit.wplugin) | 示例**前置模块**（lib 型，minApi 4）：提供 `com.example.shapekit.ShapeKit`（三角形/星形/菱形/六边形绘制） |
-| [triangle.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.34/triangle.wplugin) | 示例**依赖前置的 SHAPE 插件**（minApi 4，requires shapekit>=1）：整页显示三角形，点一下换形状、按色环变色；先装 shapekit 再装这个 |
+| [watchnote-4.1.35-144.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/watchnote-4.1.35-144.apk) | 腕记 Beta 4.1.35（0.4.5 收尾 + 两个手动测试插件 `testui` / `testdata`，内置在 APK 里可直接装），安装到手表/手机（Android 8.0+） |
+| [testui.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/testui.wplugin) | **界面全测**（`com.example.testui`，minApi 5）：容器树全部工厂与链式属性、17 种官方组件、元素画布 / 整页画布 / 画布点击拖动、三个按钮插槽；第 3 页是 `asMainPage()` 整页表盘 |
+| [testdata.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/testdata.wplugin) | **数据全测**（`com.example.testdata`，minApi 5）：笔记 / 标签 / 键值存储、事件订阅与反注册、前置模块查询、`host.net` 三条通路 + 五条拦截路径、卡片动作按钮 |
+| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
+| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
+| [uikit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/uikit.wplugin) | 示例**前置模块**（lib 型，minApi 3）：不占界面，提供 `com.example.uikit.FrontKit`（时间格式化、百分比、大数字、进度环） |
+| [frontui.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/frontui.wplugin) | 示例**依赖前置的 UI 插件**（minApi 3，requires uikit>=1）：用 FrontKit 画页面，前置不可用时退回官方组件 |
+| [frontalgo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/frontalgo.wplugin) | 示例**依赖前置的算法插件**（minApi 3，requires uikit>=1）：用 FrontKit 算笔记字数估阅读时长 |
+| [shapekit.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/shapekit.wplugin) | 示例**前置模块**（lib 型，minApi 4）：提供 `com.example.shapekit.ShapeKit`（三角形/星形/菱形/六边形绘制） |
+| [triangle.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.35/triangle.wplugin) | 示例**依赖前置的 SHAPE 插件**（minApi 4，requires shapekit>=1）：整页显示三角形，点一下换形状、按色环变色；先装 shapekit 再装这个 |
 
 4.1.26 起可以在手表里直接查新版：**关于 → 详细信息 → 检查更新**（进页面时若距上次超过 24 小时会自动查一次，平时不联网）。有新版会显示版本号和更新介绍，点下载有进度条；**4.1.28 起下载完会直接弹出系统安装界面**——手表上没有文件管理器，不用再自己去找 APK。第一次装会先跳到「允许腕记安装应用」开关，打开后回来点一次「安装这个版本」即可。
 

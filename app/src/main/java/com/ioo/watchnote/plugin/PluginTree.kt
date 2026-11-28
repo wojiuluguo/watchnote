@@ -1,6 +1,7 @@
 package com.ioo.watchnote.plugin
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -15,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -24,7 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.Text
 
 /**
  * 插件页面（0.4.5 起）。
@@ -450,17 +455,61 @@ object Ui {
 internal fun UIPageContent(page: UIPage, scope: PageScope, revision: Int) {
     if (page.fullScreen) {
         Box(Modifier.fillMaxSize()) {
-            NodeView(page.root, page, revision, 0, Modifier.fillMaxSize())
+            NodeView(
+                page.root, page, revision, 0,
+                Modifier.fillMaxSize(),
+                allowScroll = true,
+                fullBleed = true,
+            )
+            // 整页画布是插件自己画的，宿主不塞标题和边距 —— 但「怎么退出去」必须由宿主保证：
+            // 不是占指示栏的主页面时，左上角叠一颗小返回键，否则用户只能靠系统返回。
+            if (!page.mainPage) FullPageExit(scope)
         }
     } else {
+        // 普通页已经被官方页壳塞进一个懒加载列表的 item 里（高度无界）：
+        // 再套 verticalScroll 会撞「infinity maximum height」的断言，整页直接红屏。
+        // 所以这里把 allowScroll 传 false，scroll 容器降级成普通 column —— 整页本身还是能滚的。
         Official.Page(title = page.title, sub = page.subtitle, onBack = { scope.close() }) {
-            NodeView(page.root, page, revision, 0, Modifier.fillMaxWidth())
+            NodeView(
+                page.root, page, revision, 0,
+                Modifier.fillMaxWidth(),
+                allowScroll = false,
+                fullBleed = false,
+            )
+        }
+    }
+}
+
+/** 整页画布页的宿主退出键：左上角一颗半透明小圆钮，独立于插件的画布。 */
+@Composable
+private fun FullPageExit(scope: PageScope) {
+    Box(
+        Modifier.fillMaxSize().padding(start = 10.dp, top = 10.dp),
+        contentAlignment = Alignment.TopStart,
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .clickable { scope.close() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("←", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
         }
     }
 }
 
 @Composable
-private fun NodeView(node: UINode, page: UIPage, revision: Int, depth: Int, modifier: Modifier) {
+private fun NodeView(
+    node: UINode,
+    page: UIPage,
+    revision: Int,
+    depth: Int,
+    modifier: Modifier,
+    allowScroll: Boolean,
+    fullBleed: Boolean = false,
+) {
     if (depth > MAX_DEPTH) {
         Official.Note("嵌套太深，已截断")
         return
@@ -468,17 +517,26 @@ private fun NodeView(node: UINode, page: UIPage, revision: Int, depth: Int, modi
     val m = if (node.padDp > 0) modifier.padding(node.padDp.dp) else modifier
     when (node.kind) {
         NodeKind.COLUMN -> Column(
-            m.fillMaxWidth(),
+            if (fullBleed) m.fillMaxSize() else m.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
         ) {
-            node.children.forEach { child -> NodeView(child, page, revision, depth + 1, childModifier(child)) }
+            node.children.forEach { child ->
+                NodeView(child, page, revision, depth + 1, childModifier(child), allowScroll, fullBleed)
+            }
         }
 
         NodeKind.SCROLL -> Column(
-            m.fillMaxWidth().let { if (node.scrollable) it.verticalScroll(rememberScrollState()) else it },
+            m.fillMaxWidth().let {
+                // 只有「整页画布」里的滚动容器才真的自己滚；普通页的外层已经是懒加载列表，
+                // 这里再嵌一层 verticalScroll 会拿到无界高度约束，Compose 会直接抛异常。
+                if (node.scrollable && allowScroll) it.verticalScroll(rememberScrollState()) else it
+            },
             verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
         ) {
-            node.children.forEach { child -> NodeView(child, page, revision, depth + 1, childModifier(child)) }
+            node.children.forEach { child ->
+                // 滚动容器里高度是无限的，fillCanvas 不能再 fillMaxSize（会拿到 Infinity）。
+                NodeView(child, page, revision, depth + 1, childModifier(child), allowScroll, fullBleed = false)
+            }
         }
 
         NodeKind.ROW -> Row(
@@ -486,7 +544,9 @@ private fun NodeView(node: UINode, page: UIPage, revision: Int, depth: Int, modi
             horizontalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            node.children.forEach { child -> NodeView(child, page, revision, depth + 1, rowChildModifier(child)) }
+            node.children.forEach { child ->
+                NodeView(child, page, revision, depth + 1, rowChildModifier(child), allowScroll, fullBleed)
+            }
         }
 
         NodeKind.GRID -> Column(
@@ -496,7 +556,9 @@ private fun NodeView(node: UINode, page: UIPage, revision: Int, depth: Int, modi
             node.children.chunked(node.cols).forEach { line ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     line.forEach { child ->
-                        Box(Modifier.weight(1f)) { NodeView(child, page, revision, depth + 1, Modifier.fillMaxWidth()) }
+                        Box(Modifier.weight(1f)) {
+                            NodeView(child, page, revision, depth + 1, Modifier.fillMaxWidth(), allowScroll, fullBleed)
+                        }
                     }
                     repeat(node.cols - line.size) { Spacer(Modifier.weight(1f)) }
                 }
@@ -507,7 +569,12 @@ private fun NodeView(node: UINode, page: UIPage, revision: Int, depth: Int, modi
             m.fillMaxWidth().let { if (node.heightDp > 0) it.height(node.heightDp.dp) else it },
         ) {
             node.children.forEach { child ->
-                NodeView(child, page, revision, depth + 1, Modifier.align(childAlign(child.align)))
+                NodeView(
+                    child, page, revision, depth + 1,
+                    Modifier.align(childAlign(child.align)),
+                    allowScroll,
+                    fullBleed,
+                )
             }
         }
 
@@ -519,14 +586,16 @@ private fun NodeView(node: UINode, page: UIPage, revision: Int, depth: Int, modi
             verticalArrangement = Arrangement.spacedBy(node.spacingDp.dp),
         ) {
             if (node.label.isNotEmpty()) Official.Section(node.label)
-            node.children.forEach { child -> NodeView(child, page, revision, depth + 1, childModifier(child)) }
+            node.children.forEach { child ->
+                NodeView(child, page, revision, depth + 1, childModifier(child), allowScroll, fullBleed)
+            }
         }
 
         NodeKind.SPACER -> Spacer(Modifier.height((if (node.heightDp > 0) node.heightDp else 8).dp))
 
         NodeKind.DIVIDER -> Official.Divider()
 
-        NodeKind.CANVAS -> CanvasNode(node, page, revision, m)
+        NodeKind.CANVAS -> CanvasNode(node, page, revision, m, fullBleed)
 
         NodeKind.OFFICIAL -> OfficialNode(node, page, m)
 
@@ -559,7 +628,7 @@ private fun childAlign(pos: Int): Alignment = when (pos) {
 }
 
 @Composable
-private fun CanvasNode(node: UINode, page: UIPage, revision: Int, modifier: Modifier) {
+private fun CanvasNode(node: UINode, page: UIPage, revision: Int, modifier: Modifier, fullBleed: Boolean) {
     val theme = penTheme()
     val ops = remember(node, revision, theme) {
         val pen = Pen(theme)
@@ -571,9 +640,15 @@ private fun CanvasNode(node: UINode, page: UIPage, revision: Int, modifier: Modi
         node.heightDp > 0 -> node.heightDp
         else -> 56
     }
-    val m = modifier
-        .fillMaxWidth()
-        .let { if (node.fill) it.heightIn(min = h.dp) else it.height(h.dp) }
+    // 整页画布（fillCanvas）在 fullPage 页里要真的铺满屏幕；普通页里只能是「至少 220dp」，
+    // 因为普通页外面是懒加载列表的 item，高度无界，fillMaxSize 会拿到 Infinity 直接崩。
+    val m = if (node.fill && fullBleed) {
+        modifier.fillMaxSize()
+    } else {
+        modifier
+            .fillMaxWidth()
+            .let { if (node.fill) it.heightIn(min = h.dp) else it.height(h.dp) }
+    }
     val tap = node.tap ?: node.actionId.takeIf { it.isNotEmpty() }?.let { id ->
         TapBlock { _, _ -> page.dispatch(id) }
     }
@@ -623,8 +698,8 @@ private fun OfficialNode(node: UINode, page: UIPage, modifier: Modifier) {
         )
 
         OfficialKind.TIME -> Official.TimeCard(
-            node.start.toLongOrNull() ?: 0L,
-            node.end.toLongOrNull() ?: 0L,
+            parseClockMillis(node.start),
+            parseClockMillis(node.end),
             node.trailing.ifEmpty { null },
             click,
         )
@@ -648,6 +723,28 @@ private fun penTheme(): PenTheme {
         danger = cs.error,
         card = cs.surfaceContainer,
     )
+}
+
+/**
+ * 时间行的起点/终点。文档允许写毫秒时间戳，也允许写 "09:30" / "09:30:00"。
+ * 4.1.34 只认前者：插件照文档写 "09:30"，toLongOrNull 返回 null 被兜成 0，界面上静默变成 00:00。
+ * 这里两种都收：纯数字当毫秒，否则按「今天的 HH:mm(:ss)」换算成毫秒，越界一律回 0。
+ */
+internal fun parseClockMillis(text: String): Long {
+    if (text.isEmpty()) return 0L
+    text.trim().toLongOrNull()?.let { return it }
+    val parts = text.trim().split(":")
+    if (parts.size < 2 || parts.size > 3) return 0L
+    val h = parts[0].toIntOrNull() ?: return 0L
+    val m = parts[1].toIntOrNull() ?: return 0L
+    val s = if (parts.size == 3) parts[2].toIntOrNull() ?: return 0L else 0
+    if (h !in 0..23 || m !in 0..59 || s !in 0..59) return 0L
+    val cal = java.util.Calendar.getInstance()
+    cal.set(java.util.Calendar.HOUR_OF_DAY, h)
+    cal.set(java.util.Calendar.MINUTE, m)
+    cal.set(java.util.Calendar.SECOND, s)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
 }
 
 internal const val MAX_DEPTH: Int = 16

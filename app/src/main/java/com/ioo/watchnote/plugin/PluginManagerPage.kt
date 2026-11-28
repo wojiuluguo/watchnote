@@ -208,6 +208,31 @@ fun PluginManagerPage(
             }
         }
     }
+    // 两个「全能力测试包」：界面全测 + 数据全测。她手表上装第三方面板挑文件不方便，
+    // 所以这两个也走「预览 → 清单确认 → 一次装两个」，跟示例插件同一条链。
+    val requestTests: () -> Unit = {
+        if (currentInstaller != null) {
+            val assets = ExternalPluginInstaller.BUNDLED_TESTS
+            val results = currentInstaller.previewBundledAssets(assets)
+            val ready = ArrayList<Pair<String, ExternalInstallPreview>>()
+            val failures = ArrayList<String>()
+            results.forEachIndexed { index, result ->
+                when (result) {
+                    is ExternalPreviewResult.Ready -> ready.add(assets[index] to result.preview)
+                    is ExternalPreviewResult.Failed -> failures.add(result.reason)
+                }
+            }
+            if (ready.isEmpty()) {
+                core.toastHandler?.invoke("装不了：" + (failures.firstOrNull() ?: "内置测试包读不到"))
+            } else {
+                if (failures.isNotEmpty()) core.toastHandler?.invoke("跳过 " + failures.size + " 个：" + failures.first())
+                pendingConfirm = testsInstallConfirm(ready.map { it.second }) {
+                    pendingConfirm = null
+                    installBundledAssets(core, currentInstaller, ready.map { it.first }) { applied() }
+                }
+            }
+        }
+    }
     val requestInbox: () -> Unit = {
         if (currentInstaller != null) {
             val files = currentInstaller.inboxFiles()
@@ -278,6 +303,7 @@ fun PluginManagerPage(
             onBack = { section = PluginSection.ROOT },
             onOpenExternal = { selectedExternalId = it },
             onRequestSample = requestSample,
+            onRequestTests = requestTests,
             onRequestInbox = requestInbox,
             onRequestPick = requestPick,
             onRequestReceive = { receiving = true },
@@ -504,6 +530,7 @@ private fun PluginExternalPage(
     onBack: () -> Unit,
     onOpenExternal: (String) -> Unit,
     onRequestSample: () -> Unit,
+    onRequestTests: () -> Unit,
     onRequestInbox: () -> Unit,
     onRequestPick: () -> Unit,
     onRequestReceive: () -> Unit,
@@ -556,7 +583,7 @@ private fun PluginExternalPage(
         }
         if (installer != null) {
             item(key = "external-how-header") {
-                Fish { Official.Stat("安装方式", "4 种") }
+                Fish { Official.Stat("安装方式", "5 种") }
             }
             item(key = "external-receive") {
                 Fish {
@@ -605,6 +632,27 @@ private fun PluginExternalPage(
                         label = "安装示例插件",
                         trailing = if (externalRecords.any { it.id == SAMPLE_ID }) "已装" else "离线",
                         onClick = onRequestSample,
+                    )
+                }
+            }
+            item(key = "external-tests") {
+                Fish {
+                    Official.Button(
+                        symbol = "✚",
+                        label = "安装测试插件（2 个）",
+                        trailing = TEST_IDS.count { id -> externalIds.contains(id) }.toString() + "/2",
+                        onClick = onRequestTests,
+                    )
+                }
+            }
+            item(key = "external-tests-hint") {
+                Fish {
+                    Text(
+                        "「界面全测」跑容器树、16 种组件、画布和整页表盘；「数据全测」跑笔记、事件、存储和联网。" +
+                            "装完后在设置页找两个按钮，能把 0.4.5 的每条 API 都点一遍。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
                     )
                 }
             }
@@ -1138,6 +1186,26 @@ private fun installFiles(
     onApplied()
 }
 
+/** 一次装多个自带包；每个包各自成功/失败，最后汇总成一句 toast。 */
+private fun installBundledAssets(
+    core: PluginCore,
+    installer: ExternalPluginInstaller,
+    assets: List<String>,
+    onApplied: () -> Unit,
+) {
+    val results = assets.map { installer.installBundledAsset(it) }
+    val ok = results.count { it is ExternalInstallResult.Installed }
+    val failures = results.filterIsInstance<ExternalInstallResult.Failed>().map { it.reason }
+    core.toastHandler?.invoke(
+        if (failures.isEmpty()) {
+            "装上了 " + ok + " 个测试插件，去设置页看「界面全测」和「数据全测」"
+        } else {
+            "成功 " + ok + " 个，失败 " + failures.size + " 个：" + failures.first()
+        },
+    )
+    onApplied()
+}
+
 private fun previewLines(preview: ExternalInstallPreview): List<String> {
     val lines = ArrayList<String>()
     lines.add(preview.name + " · v" + preview.version + " · API " + preview.minApi)
@@ -1172,6 +1240,22 @@ private fun sampleInstallConfirm(preview: ExternalInstallPreview, onOk: () -> Un
         danger = false,
         onOk = onOk,
     )
+
+private fun testsInstallConfirm(previews: List<ExternalInstallPreview>, onOk: () -> Unit): ConfirmData {
+    val lines = ArrayList<String>()
+    for (preview in previews) {
+        lines.add(preview.name + " · v" + preview.version + " · " + permissionsText(preview.permissions))
+        if (!preview.description.isNullOrBlank()) lines.add("  " + preview.description)
+    }
+    lines.add("两个都是官方自带包，装完不会自己占界面：界面全测加 2 个按钮 + 3 个页面，数据全测加 3 个按钮 + 2 个页面。")
+    return ConfirmData(
+        title = "安装 " + previews.size + " 个测试插件？",
+        message = lines.joinToString("\n"),
+        okLabel = "安装",
+        danger = false,
+        onOk = onOk,
+    )
+}
 
 private fun inboxInstallConfirm(previews: List<ExternalInstallPreview>, onOk: () -> Unit): ConfirmData {
     val lines = ArrayList<String>()
@@ -1358,3 +1442,6 @@ private fun PluginReceivePage(
 }
 
 private const val SAMPLE_ID = "com.example.hello"
+
+/** 4.1.35 的两个全能力测试包。列表顺序 = 安装顺序 = 确认清单顺序。 */
+private val TEST_IDS = listOf("com.example.testui", "com.example.testdata")
