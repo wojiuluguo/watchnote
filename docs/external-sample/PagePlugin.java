@@ -5,6 +5,7 @@ import com.ioo.watchnote.plugin.ButtonSpec;
 import com.ioo.watchnote.plugin.HostScreen;
 import com.ioo.watchnote.plugin.Permission;
 import com.ioo.watchnote.plugin.PluginHost;
+import com.ioo.watchnote.plugin.PluginKind;
 import com.ioo.watchnote.plugin.PluginManifest;
 import com.ioo.watchnote.plugin.SimplePage;
 import com.ioo.watchnote.plugin.WristPlugin;
@@ -35,7 +36,8 @@ public final class PagePlugin implements WristPlugin {
     // version 3：示例升级；minApi 2：它用了 0.2 才有的官方 UI 行，老宿主（api 1）要拒绝安装，
     // 而不是装上后 NoSuchMethodError。
     private final PluginManifest manifest =
-            new PluginManifest(ID, "示例页面插件", 3, 2, Collections.singleton(Permission.READ_NOTES));
+            new PluginManifest(ID, "示例页面插件", 3, 2, Collections.singleton(Permission.READ_NOTES),
+                    PluginKind.APP, Collections.emptyList(), Collections.emptyList());
 
     @Override
     public PluginManifest getManifest() {

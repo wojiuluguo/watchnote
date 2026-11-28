@@ -3,6 +3,7 @@ package com.example.hello;
 import com.ioo.watchnote.plugin.ButtonSlot;
 import com.ioo.watchnote.plugin.ButtonSpec;
 import com.ioo.watchnote.plugin.PluginHost;
+import com.ioo.watchnote.plugin.PluginKind;
 import com.ioo.watchnote.plugin.PluginManifest;
 import com.ioo.watchnote.plugin.WristPlugin;
 
@@ -18,7 +19,8 @@ import java.util.Collections;
 public final class HelloPlugin implements WristPlugin {
 
     private final PluginManifest manifest =
-            new PluginManifest("com.example.hello", "示例插件", 1, 1, Collections.emptySet());
+            new PluginManifest("com.example.hello", "示例插件", 1, 1, Collections.emptySet(),
+                    PluginKind.APP, Collections.emptyList(), Collections.emptyList());
 
     @Override
     public PluginManifest getManifest() {

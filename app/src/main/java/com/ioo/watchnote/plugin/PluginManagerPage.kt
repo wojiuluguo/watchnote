@@ -4,21 +4,38 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.MaterialTheme
@@ -26,6 +43,7 @@ import androidx.wear.compose.material3.Text
 import com.ioo.watchnote.ConfirmData
 import com.ioo.watchnote.ConfirmDialog
 import com.ioo.watchnote.Fish
+import com.ioo.watchnote.Haptics
 import com.ioo.watchnote.PageTitle
 import com.ioo.watchnote.SettingPill
 import com.ioo.watchnote.Store
@@ -52,12 +70,17 @@ import kotlinx.coroutines.withContext
  * 这一页本身不属于任何插件，是宿主自己的页面：插件全关掉它也还在，
  * 否则关掉插件就再也点不开、只能清数据，那就成死胡同了。
  *
- * 两层结构：列表 → 详情。为什么不让列表一行直接切换开关：
- * 插件一多，一行里既显示状态又当开关既容易误触、也没地方放版本/权限/页面/数据这些用户该看到的东西。
- * 所以点一行先看详情，开关和「重新加载」都在详情里。
+ * 4.1.31 起不再把所有东西堆在一页，改成三层：
+ * - 根页只留两个入口：「官方插件」「第三方插件」，点进去才是各自那一批；
+ * - 官方页 = 随腕记出厂的插件（主题颜色、调色、笔记统计、笔记详情、快捷入口）；
+ * - 第三方页 = 从 .wplugin 装进来的插件（接收 / 选文件 / 文件夹 / 示例包四个入口都在这里）；
+ * - 正在运行、注册表（页面/按钮/私有数据）、导入方法这些「众多信息」，
+ *   收进根页**从屏幕最上边往下滑**出来的「更多信息」页，和笔记详情下滑进「更多」是同一套手势。
  *
- * 4.1.10 起多了「外置插件」一块：内置插件来自代码目录，外置插件是从 .wplugin 装进来的；
- * 两者在列表里分开显示，详情页也分开——外置插件多了卸载和包指纹。
+ * 为什么拆：一页里既有统计、又有两块列表、又有四个安装入口，找东西全靠滑；
+ * 点进「插件」是想看插件，不是想看仪表盘。插件越多，这一页越像杂货铺。
+ *
+ * 每一层里仍是「列表 → 详情」：一行不当开关，详情里才有开关、版本、权限、页面和数据。
  */
 @Composable
 fun PluginManagerPage(
@@ -75,6 +98,8 @@ fun PluginManagerPage(
     var bump by remember { mutableIntStateOf(0) }
     var pendingConfirm by remember { mutableStateOf<ConfirmData?>(null) }
     var receiving by remember { mutableStateOf(false) }
+    // 4.1.32：插件页自己的三层（根 / 官方 / 第三方 / 更多信息），和宿主页面栈分开
+    var section by remember { mutableStateOf(PluginSection.ROOT) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     fun applied() {
@@ -224,103 +249,191 @@ fun PluginManagerPage(
         }
     }
 
-    PluginList(
-        core = core,
-        installer = installer,
-        bump = bump,
-        onBack = onBack,
-        onOpenBuiltin = { selectedId = it },
-        onOpenExternal = { selectedExternalId = it },
-        onRequestSample = requestSample,
-        onRequestInbox = requestInbox,
-        onRequestPick = requestPick,
-        onRequestReceive = { receiving = true },
-        onOpenPage = onOpenPage,
-    )
+    // 返回键：先退回根页，再退出插件页。不加这层的话，在「官方插件」里按返回会直接
+    // 退出整个插件页，用户会以为自己被踢出来了。
+    BackHandler(enabled = section != PluginSection.ROOT) { section = PluginSection.ROOT }
+
+    when (section) {
+        PluginSection.ROOT -> PluginRoot(
+            core = core,
+            installer = installer,
+            bump = bump,
+            onBack = onBack,
+            onOfficial = { section = PluginSection.OFFICIAL },
+            onExternal = { section = PluginSection.EXTERNAL },
+            onInfo = { section = PluginSection.INFO },
+        )
+        PluginSection.OFFICIAL -> PluginOfficialPage(
+            core = core,
+            installer = installer,
+            bump = bump,
+            onBack = { section = PluginSection.ROOT },
+            onOpenBuiltin = { selectedId = it },
+            onOpenPage = onOpenPage,
+        )
+        PluginSection.EXTERNAL -> PluginExternalPage(
+            core = core,
+            installer = installer,
+            bump = bump,
+            onBack = { section = PluginSection.ROOT },
+            onOpenExternal = { selectedExternalId = it },
+            onRequestSample = requestSample,
+            onRequestInbox = requestInbox,
+            onRequestPick = requestPick,
+            onRequestReceive = { receiving = true },
+            onOpenPage = onOpenPage,
+        )
+        PluginSection.INFO -> PluginInfoPage(
+            core = core,
+            installer = installer,
+            bump = bump,
+            onBack = { section = PluginSection.ROOT },
+            onOpenPage = onOpenPage,
+        )
+    }
 
     val confirm = pendingConfirm
     if (confirm != null) ConfirmDialog(confirm, onClosed = { pendingConfirm = null })
 }
 
+/** 插件页内部的层：根 / 官方 / 第三方 / 更多信息。不进宿主页面栈，返回键由本页自己处理。 */
+private enum class PluginSection { ROOT, OFFICIAL, EXTERNAL, INFO }
+
+/** 页面属于哪个插件：官方插件取代码目录里的名字，外置插件取安装记录里的名字。 */
+private fun pluginOwnerName(pluginId: String, externalRecords: List<ExternalPluginRecord>): String {
+    BuiltinPlugins.find(pluginId)?.let { return it.name }
+    externalRecords.firstOrNull { it.id == pluginId }?.let { return it.name }
+    return pluginId
+}
+
+/**
+ * 根页：只有两个入口，别的不放。
+ * 统计、注册表、导入方法收在「更多信息」里——手势和笔记详情一样：从屏幕最上边往下滑。
+ */
 @Composable
-private fun PluginList(
+private fun PluginRoot(
+    core: PluginCore,
+    installer: ExternalPluginInstaller?,
+    bump: Int,
+    onBack: () -> Unit,
+    onOfficial: () -> Unit,
+    onExternal: () -> Unit,
+    onInfo: () -> Unit,
+) {
+    val installedIds = core.manifests.map { it.id }.toSet()
+    val externalRecords = remember(bump) { installer?.records() ?: emptyList() }
+    val officialOn = BuiltinPlugins.all.count { installedIds.contains(it.id) }
+    val externalOn = externalRecords.count { core.isInstalled(it.id) }
+
+    var pull by remember { mutableFloatStateOf(0f) }
+    var fired by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val halfPx = with(density) { (LocalConfiguration.current.screenHeightDp.dp / 2).toPx() }
+    val fadePx = with(density) { 24.dp.toPx() }
+    val pullDp = with(density) { pull.toDp() }
+
+    Box(Modifier.fillMaxSize()) {
+        SubPageListFrame(onBack = onBack) {
+            item(key = "plugin-title") {
+                Fish {
+                    PageTitle("插件", "官方 " + BuiltinPlugins.all.size + " 个 · 第三方 " + externalRecords.size + " 个")
+                }
+            }
+            item(key = "plugin-root-official") {
+                Fish {
+                    Official.Button(
+                        symbol = "◉",
+                        label = "官方插件",
+                        trailing = officialOn.toString() + " / " + BuiltinPlugins.all.size + " 开着",
+                        onClick = onOfficial,
+                    )
+                }
+            }
+            item(key = "plugin-root-external") {
+                Fish {
+                    Official.Button(
+                        symbol = "◈",
+                        label = "第三方插件",
+                        trailing = externalRecords.size.toString() + " 个 · 跑着 " + externalOn,
+                        onClick = onExternal,
+                    )
+                }
+            }
+            item(key = "plugin-root-hint") {
+                Fish {
+                    Text(
+                        "从屏幕最上边往下滑：正在运行、注册表、怎么导入",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+            item(key = "plugin-bottom-space") { Spacer(Modifier.height(12.dp)) }
+        }
+
+        // 顶部 30dp 是下滑起手区：透明、不挡列表的点击和滚动
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+                .offset(y = (-16).dp)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { pull = 0f; fired = false },
+                        onDragEnd = { pull = 0f; fired = false },
+                        onDragCancel = { pull = 0f; fired = false }
+                    ) { change, dy ->
+                        change.consume()
+                        if (fired) return@detectVerticalDragGestures
+                        pull = (pull + dy).coerceAtLeast(0f)
+                        if (pull >= halfPx) {
+                            fired = true
+                            Haptics.tap()
+                            pull = 0f
+                            onInfo()
+                        }
+                    }
+                }
+        )
+        if (pull > 2f) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = pullDp)
+                    .alpha((pull / fadePx).coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = 16.dp, vertical = 7.dp)
+            ) {
+                Text("更多信息", color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** 官方插件：随腕记一起出厂的那几个，开关和详情和以前一样。 */
+@Composable
+private fun PluginOfficialPage(
     core: PluginCore,
     installer: ExternalPluginInstaller?,
     bump: Int,
     onBack: () -> Unit,
     onOpenBuiltin: (String) -> Unit,
-    onOpenExternal: (String) -> Unit,
-    onRequestSample: () -> Unit,
-    onRequestInbox: () -> Unit,
-    onRequestPick: () -> Unit,
-    onRequestReceive: () -> Unit,
     onOpenPage: (String) -> Unit,
 ) {
     val installedIds = core.manifests.map { it.id }.toSet()
-    // bump 是安装/卸载后的刷新信号：外置插件记录在 SharedPreferences 里，不是 Compose 状态
     val externalRecords = remember(bump) { installer?.records() ?: emptyList() }
-    val externalRunning = externalRecords.count { core.isInstalled(it.id) }
-    val total = BuiltinPlugins.all.size + externalRecords.size
-    val onCount = BuiltinPlugins.all.count { installedIds.contains(it.id) } + externalRunning
-    val pages = core.pages().size
-    val buttons = core.buttons().size
-    val dataKeys = BuiltinPlugins.all.sumOf { core.dataKeysOf(it.id).size } +
-        externalRecords.sumOf { core.dataKeysOf(it.id).size }
+    val onCount = BuiltinPlugins.all.count { installedIds.contains(it.id) }
+    val builtinIds = BuiltinPlugins.all.map { it.id }.toSet()
+    val pages = core.pages().filter { builtinIds.contains(it.ownerPluginId) }
 
     SubPageListFrame(onBack = onBack) {
-        item(key = "plugin-title") {
-            Fish { PageTitle("插件", "共 " + total + " 个 · 开着 " + onCount) }
-        }
-        item(key = "plugin-stat-running") {
-            Fish { Official.Stat("正在运行", onCount.toString() + " 个") }
-        }
-        item(key = "plugin-stat-pages") {
-            Fish { Official.Stat("注册页面", pages.toString() + " 页") }
-        }
-        item(key = "plugin-stat-buttons") {
-            Fish { Official.Stat("注册按钮", buttons.toString() + " 个") }
-        }
-        item(key = "plugin-stat-data") {
-            Fish { Official.Stat("私有数据", dataKeys.toString() + " 项") }
-        }
-        // 插件页面总入口：插件一多，不用挨个点进详情找页面
-        val allPages = core.pages()
-        fun ownerName(pluginId: String): String {
-            val builtin = BuiltinPlugins.find(pluginId)
-            if (builtin != null) return builtin.name
-            val external = externalRecords.firstOrNull { it.id == pluginId }
-            if (external != null) return external.name
-            return pluginId
-        }
-        if (allPages.isNotEmpty()) {
-            item(key = "plugin-pages-header") {
-                Fish { Official.Stat("插件页面", allPages.size.toString() + " 个") }
-            }
-            allPages.forEach { page ->
-                item(key = "plugin-page-" + page.spec.id) {
-                    Fish {
-                        Official.Button(
-                            symbol = if (page.spec.kind == PageKind.LIST) "▤" else "▸",
-                            label = page.spec.title,
-                            trailing = ownerName(page.ownerPluginId),
-                            onClick = { onOpenPage(page.spec.id) },
-                        )
-                    }
-                }
-            }
-        }
-        item(key = "plugin-explain") {
-            Fish {
-                Text(
-                    "点一个插件看它的版本、权限、页面和按钮，开关也在里面；上面的「插件页面」能直接打开页面。关掉插件不会丢数据。",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                )
-            }
+        item(key = "official-title") {
+            Fish { PageTitle("官方插件", onCount.toString() + " / " + BuiltinPlugins.all.size + " 开着") }
         }
         BuiltinPlugins.all.forEach { entry ->
-            item(key = "plugin-row-" + entry.id) {
+            item(key = "official-row-" + entry.id) {
                 Fish {
                     val on = installedIds.contains(entry.id)
                     SettingPill(
@@ -332,11 +445,101 @@ private fun PluginList(
                 }
             }
         }
-        if (installer != null) {
-            item(key = "plugin-ext-header") {
-                Fish { Official.Stat("外置插件", externalRecords.size.toString() + " 个") }
+        if (pages.isNotEmpty()) {
+            item(key = "official-pages-header") {
+                Fish { Official.Stat("官方页面", pages.size.toString() + " 个") }
             }
-            item(key = "plugin-ext-receive") {
+            pages.forEach { page ->
+                item(key = "official-page-" + page.spec.id) {
+                    Fish {
+                        Official.Button(
+                            symbol = if (page.spec.kind == PageKind.LIST) "▤" else "▸",
+                            label = page.spec.title,
+                            trailing = pluginOwnerName(page.ownerPluginId, externalRecords),
+                            onClick = { onOpenPage(page.spec.id) },
+                        )
+                    }
+                }
+            }
+        }
+        item(key = "official-explain") {
+            Fish {
+                Text(
+                    "主题颜色、调色、笔记统计、笔记详情、快捷入口都在这里：它们和腕记一起出厂，关掉不丢数据，重开还是原样。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        item(key = "plugin-bottom-space") { Spacer(Modifier.height(12.dp)) }
+    }
+}
+
+/** 第三方插件：装进来的是 .wplugin，四个安装入口和已装的列表都在这边。 */
+@Composable
+private fun PluginExternalPage(
+    core: PluginCore,
+    installer: ExternalPluginInstaller?,
+    bump: Int,
+    onBack: () -> Unit,
+    onOpenExternal: (String) -> Unit,
+    onRequestSample: () -> Unit,
+    onRequestInbox: () -> Unit,
+    onRequestPick: () -> Unit,
+    onRequestReceive: () -> Unit,
+    onOpenPage: (String) -> Unit,
+) {
+    val externalRecords = remember(bump) { installer?.records() ?: emptyList() }
+    val externalRunning = externalRecords.count { core.isInstalled(it.id) }
+    val externalIds = externalRecords.map { it.id }.toSet()
+    val pages = core.pages().filter { externalIds.contains(it.ownerPluginId) }
+
+    SubPageListFrame(onBack = onBack) {
+        item(key = "external-title") {
+            Fish { PageTitle("第三方插件", externalRecords.size.toString() + " 个 · 跑着 " + externalRunning) }
+        }
+        if (installer == null) {
+            item(key = "external-none") {
+                Fish {
+                    Text(
+                        "这台设备没有外置插件加载器，只能装官方插件。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+        }
+        externalRecords.forEach { record ->
+            item(key = "external-row-" + record.id) {
+                Fish {
+                    SettingPill(
+                        symbol = "◈",
+                        label = record.name,
+                        trailing = "v" + record.version + if (core.isInstalled(record.id)) " · 使用中" else " · 未运行",
+                        onClick = { onOpenExternal(record.id) },
+                    )
+                }
+            }
+        }
+        if (externalRecords.isEmpty() && installer != null) {
+            item(key = "external-empty") {
+                Fish {
+                    Text(
+                        "还没装第三方插件。用下面任意一种方式把 .wplugin 拿进来。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+        }
+        if (installer != null) {
+            item(key = "external-how-header") {
+                Fish { Official.Stat("安装方式", "4 种") }
+            }
+            item(key = "external-receive") {
                 Fish {
                     Official.Button(
                         symbol = "⇅",
@@ -346,29 +549,7 @@ private fun PluginList(
                     )
                 }
             }
-            externalRecords.forEach { record ->
-                item(key = "plugin-ext-row-" + record.id) {
-                    Fish {
-                        SettingPill(
-                            symbol = "◈",
-                            label = record.name,
-                            trailing = "v" + record.version + if (core.isInstalled(record.id)) " · 使用中" else " · 未运行",
-                            onClick = { onOpenExternal(record.id) },
-                        )
-                    }
-                }
-            }
-            item(key = "plugin-ext-sample") {
-                Fish {
-                    Official.Button(
-                        symbol = "＋",
-                        label = "安装示例插件",
-                        trailing = if (externalRecords.any { it.id == SAMPLE_ID }) "已装" else "离线",
-                        onClick = onRequestSample,
-                    )
-                }
-            }
-            item(key = "plugin-ext-pick") {
+            item(key = "external-pick") {
                 Fish {
                     Official.Button(
                         symbol = "◎",
@@ -378,7 +559,7 @@ private fun PluginList(
                     )
                 }
             }
-            item(key = "plugin-ext-inbox") {
+            item(key = "external-inbox") {
                 Fish {
                     Official.Button(
                         symbol = "⇩",
@@ -388,7 +569,7 @@ private fun PluginList(
                     )
                 }
             }
-            item(key = "plugin-ext-inbox-hint") {
+            item(key = "external-inbox-hint") {
                 Fish {
                     Text(
                         "把 .wplugin 放进：" + installer.inboxDir().path,
@@ -398,25 +579,156 @@ private fun PluginList(
                     )
                 }
             }
-            item(key = "plugin-ext-type") {
+            item(key = "external-sample") {
                 Fish {
-                    Text(
-                        "插件就是一个 .wplugin 文件（本质是 zip：plugin.json + classes.dex，可带 assets/ 和签名）",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp,
+                    Official.Button(
+                        symbol = "＋",
+                        label = "安装示例插件",
+                        trailing = if (externalRecords.any { it.id == SAMPLE_ID }) "已装" else "离线",
+                        onClick = onRequestSample,
                     )
                 }
             }
-            item(key = "plugin-ext-explain") {
-                Fish {
-                    Text(
-                        "外置插件是独立打包的代码，先从包结构检查、再解压、再加载；任何一步失败都不会影响腕记本身。",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp,
-                    )
+        }
+        if (pages.isNotEmpty()) {
+            item(key = "external-pages-header") {
+                Fish { Official.Stat("第三方页面", pages.size.toString() + " 个") }
+            }
+            pages.forEach { page ->
+                item(key = "external-page-" + page.spec.id) {
+                    Fish {
+                        Official.Button(
+                            symbol = if (page.spec.kind == PageKind.LIST) "▤" else "▸",
+                            label = page.spec.title,
+                            trailing = pluginOwnerName(page.ownerPluginId, externalRecords),
+                            onClick = { onOpenPage(page.spec.id) },
+                        )
+                    }
                 }
+            }
+        }
+        item(key = "external-explain") {
+            Fish {
+                Text(
+                    "插件就是一个 .wplugin 文件（本质是 zip：plugin.json + classes.dex，可带 assets/ 和签名）。安装前会先给你看清单，点了才落地；任何一步失败都不影响腕记本身。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        item(key = "plugin-bottom-space") { Spacer(Modifier.height(12.dp)) }
+    }
+}
+
+/**
+ * 更多信息：从根页往下滑出来。
+ * 这里是「仪表盘」和「说明书」，不是插件列表——所以插件页面、按钮、私有数据的统计都在这，
+ * 根页只留两个入口，谁也不挡谁。
+ */
+@Composable
+private fun PluginInfoPage(
+    core: PluginCore,
+    installer: ExternalPluginInstaller?,
+    bump: Int,
+    onBack: () -> Unit,
+    onOpenPage: (String) -> Unit,
+) {
+    val installedIds = core.manifests.map { it.id }.toSet()
+    val externalRecords = remember(bump) { installer?.records() ?: emptyList() }
+    val onCount = BuiltinPlugins.all.count { installedIds.contains(it.id) } +
+        externalRecords.count { core.isInstalled(it.id) }
+    val pages = core.pages()
+    val buttons = core.buttons()
+    val dataKeys = BuiltinPlugins.all.sumOf { core.dataKeysOf(it.id).size } +
+        externalRecords.sumOf { core.dataKeysOf(it.id).size }
+
+    SubPageListFrame(onBack = onBack) {
+        item(key = "info-title") {
+            Fish { PageTitle("更多信息", "插件运行情况 · 怎么装") }
+        }
+        item(key = "info-stat-running") { Fish { Official.Stat("正在运行", onCount.toString() + " 个") } }
+        item(key = "info-stat-pages") { Fish { Official.Stat("注册页面", pages.size.toString() + " 页") } }
+        item(key = "info-stat-buttons") { Fish { Official.Stat("注册按钮", buttons.size.toString() + " 个") } }
+        item(key = "info-stat-data") { Fish { Official.Stat("私有数据", dataKeys.toString() + " 项") } }
+        item(key = "info-stat-api") {
+            Fish { Official.Stat("宿主 API", PluginApi.API_LEVEL.toString() + " · 模块 " + PluginApi.MODULE_VERSION) }
+        }
+        if (pages.isNotEmpty()) {
+            item(key = "info-pages-header") {
+                Fish { Official.Stat("注册表", pages.size.toString() + " 个页面") }
+            }
+            pages.forEach { page ->
+                item(key = "info-page-" + page.spec.id) {
+                    Fish {
+                        Official.Button(
+                            symbol = if (page.spec.kind == PageKind.LIST) "▤" else "▸",
+                            label = page.spec.title,
+                            trailing = pluginOwnerName(page.ownerPluginId, externalRecords),
+                            onClick = { onOpenPage(page.spec.id) },
+                        )
+                    }
+                }
+            }
+        }
+        item(key = "info-import-header") {
+            Fish {
+                Text(
+                    "怎么装第三方插件",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        item(key = "info-import-receive") {
+            Fish {
+                Text(
+                    "① 手机传 / 网址安装：手表和手机连同一个 Wi-Fi，手表这一页会显示一个网址，手机浏览器打开它，选手机里的 .wplugin 上传；也可以直接填一个 http(s) 下载地址。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        item(key = "info-import-pick") {
+            Fish {
+                Text(
+                    "② 选择文件安装：用系统文件选择器挑一个 .wplugin（U 盘、下载目录都行）。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        item(key = "info-import-inbox") {
+            Fish {
+                Text(
+                    "③ 从文件夹安装：把包丢进手表上的插件目录，再点这一项。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        item(key = "info-import-sample") {
+            Fish {
+                Text(
+                    "④ 安装示例插件：腕记自带一个示例包，用来确认「插件这条路」是通的。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        item(key = "info-dependency") {
+            Fish {
+                Text(
+                    "有前置模块（lib 型插件）时先装前置，再装依赖它的插件；装不上会直接告诉你缺哪一个。关掉插件不会丢数据。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                )
             }
         }
         item(key = "plugin-bottom-space") { Spacer(Modifier.height(12.dp)) }

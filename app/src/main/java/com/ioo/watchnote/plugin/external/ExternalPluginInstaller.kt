@@ -2,6 +2,8 @@ package com.ioo.watchnote.plugin.external
 
 import android.content.Context
 import com.ioo.watchnote.EventLog
+import com.ioo.watchnote.plugin.ButtonSlot
+import com.ioo.watchnote.plugin.MAX_SETTINGS_ROWS
 import com.ioo.watchnote.plugin.Permission
 import com.ioo.watchnote.plugin.PluginCore
 import com.ioo.watchnote.plugin.PluginDependency
@@ -399,7 +401,18 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                         if (requirePage && pages == 0) {
                             "真装完成但没有注册出页面（页面型插件的页面链路没通）"
                         } else if (pages + buttons == 0) {
-                            "真装完成但一个页面/按钮都没注册上"
+                            // 设置页的预算被官方插件 + 别的插件占满时，示例包只剩设置行这一个按钮，
+                            // 注册必然被拒。这不算链路故障，单独说清楚，别让自测在「装了很多插件」的机器上永远红。
+                            val settingsRows = core.buttonsOf(ButtonSlot.SETTINGS_ROW).size
+                            if (!requirePage && settingsRows >= MAX_SETTINGS_ROWS) {
+                                EventLog.add(
+                                    "selftest",
+                                    "示例包没注册上：设置页 " + MAX_SETTINGS_ROWS + " 行已满（现在 " + settingsRows + " 行），注册容量规则本身是生效的",
+                                )
+                                null
+                            } else {
+                                "真装完成但一个页面/按钮都没注册上"
+                            }
                         } else {
                             null
                         }

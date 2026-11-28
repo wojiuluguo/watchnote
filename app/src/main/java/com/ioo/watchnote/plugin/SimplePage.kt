@@ -64,6 +64,7 @@ fun interface SimplePageRenderer {
  *     divider() / space(dp)                 分割线 / 空白
  *     empty(text)                          空状态文字
  *     bars(label, values, trailing)         柱状小图（0.1 到 1 的相对高度也行，自动按最大值缩放）
+ *     shape(name, label, sizeDp, colorHex, id)  图形行（0.4）：triangle / star / diamond / hexagon，宿主画
  *
  * 带参数的行（stepper / chips / toggle）点下去回调里收到的 actionId 后面接冒号：
  *
@@ -324,6 +325,28 @@ class SimplePage @JvmOverloads constructor(
             trailing,
         )
 
+    /**
+     * 图形行（0.4）：App 原本没有的图形，由宿主用 Canvas 画，插件只交名字。
+     *
+     * name 取 triangle / star / diamond / hexagon（不认识的一律当 triangle）；
+     * label 是图形下面一行小字；sizeDp 是图形边长（24~120，默认 56）；
+     * colorHex 为空就用主题色，格式 #RRGGBB。
+     */
+    @JvmOverloads
+    fun shape(name: String, label: String, sizeDp: Int = 56, colorHex: String = "", actionId: String = ""): SimplePage {
+        rows.add(
+            SimpleRow(
+                kind = SimpleRowKind.SHAPE,
+                label = label,
+                value = name,
+                colorHex = colorHex,
+                actionId = actionId,
+                amount = sizeDp,
+            )
+        )
+        return this
+    }
+
     /** 页面上按钮的点按回调：参数是那个按钮的 actionId（带参数的行走上面写的冒号约定）。 */
     fun onAction(action: SimpleAction): SimplePage {
         handler = action
@@ -394,6 +417,7 @@ internal enum class SimpleRowKind {
     SPACE,
     EMPTY,
     BARS,
+    SHAPE,
 }
 
 /**

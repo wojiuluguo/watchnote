@@ -710,8 +710,8 @@ object PluginSelfTest {
             if (snapshot.rows[0].label != "静态行") "渲染出错没退回静态行" else null
         }
 
-        // 33. 0.2 的官方 UI 行类型：section/note/hero/item/progress/ring/stepper/chips/colorCard/
-        //     timeCard/toggle/divider/space/empty/bars —— 这些方法就是 Java 插件的「官方组件 API」。
+        // 33. 0.2 / 0.4 的官方 UI 行类型：section/note/hero/item/progress/ring/stepper/chips/colorCard/
+        //     timeCard/toggle/divider/space/empty/bars/shape —— 这些方法就是 Java 插件的「官方组件 API」。
         //     少一个、参数接错、renderer 里不能用，都算这条失败。
         check("官方 UI 行类型都能注册并保留数据") {
             val page = SimplePage(id = "test.rows:page", title = "行类型")
@@ -730,13 +730,14 @@ object PluginSelfTest {
                 .space(8)
                 .empty("空")
                 .bars("柱", listOf(1f, 5f, 3f), "峰值 5")
+                .shape("star", "星形", 64, "#FFB300", "shape")
             val rows = page.renderOnce().rows
-            if (rows.size != 15) return@check "行数不对：" + rows.size
+            if (rows.size != 16) return@check "行数不对：" + rows.size
             val expect = setOf(
                 SimpleRowKind.SECTION, SimpleRowKind.NOTE, SimpleRowKind.HERO, SimpleRowKind.ITEM,
                 SimpleRowKind.PROGRESS, SimpleRowKind.RING, SimpleRowKind.STEPPER, SimpleRowKind.CHIPS,
                 SimpleRowKind.COLOR, SimpleRowKind.TIME, SimpleRowKind.TOGGLE, SimpleRowKind.DIVIDER,
-                SimpleRowKind.SPACE, SimpleRowKind.EMPTY, SimpleRowKind.BARS,
+                SimpleRowKind.SPACE, SimpleRowKind.EMPTY, SimpleRowKind.BARS, SimpleRowKind.SHAPE,
             )
             if (rows.map { it.kind }.toSet() != expect) return@check "行类型不全：" + rows.map { it.kind }
             val progress = rows.first { it.kind == SimpleRowKind.PROGRESS }
@@ -755,6 +756,9 @@ object PluginSelfTest {
             if (space.amount != 8) return@check "空白行高度不对：" + space.amount
             val bars = rows.first { it.kind == SimpleRowKind.BARS }
             if (bars.numbers.size != 3) return@check "柱状行数据不对"
+            val shapeRow = rows.first { it.kind == SimpleRowKind.SHAPE }
+            if (shapeRow.value != "star" || shapeRow.amount != 64) return@check "图形行数据不对"
+            if (!shapeRow.colorHex.equals("#FFB300", ignoreCase = true)) return@check "图形行颜色不对"
 
             // renderer 里也必须能写 0.2 的新行（动态页面），不能只有静态页能用。
             var clicks = 0

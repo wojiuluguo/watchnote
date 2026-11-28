@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +43,8 @@ import com.ioo.watchnote.squircle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.sin
 
 /* ============================================================
    官方 UI 组件（0.2）
@@ -514,6 +517,79 @@ internal fun OfficialBars(label: String, values: List<Float>, trailing: String?)
     }
 }
 
+/** 图形行（0.4）：三角形/五角星/菱形/六边形，形状由宿主画，插件只交名字。 */
+@Composable
+internal fun OfficialShape(shape: String, label: String, sizeDp: Int, colorHex: String, onClick: (() -> Unit)?) {
+    val parsed = remember(colorHex) {
+        runCatching { android.graphics.Color.parseColor(colorHex) }.getOrNull()
+    }
+    val fill = parsed?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    val side = sizeDp.coerceIn(24, 120)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(squircle(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Canvas(Modifier.size(side.dp)) {
+            val centerX = size.width / 2f
+            val centerY = size.height / 2f
+            val r = minOf(centerX, centerY) * 0.9f
+            val path = Path()
+            when (shape.lowercase()) {
+                "star" -> {
+                    repeat(10) { i ->
+                        val radius = if (i % 2 == 0) r else r * 0.42f
+                        val angle = Math.toRadians((i * 36 - 90).toDouble())
+                        val x = centerX + (radius * cos(angle)).toFloat()
+                        val y = centerY + (radius * sin(angle)).toFloat()
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    path.close()
+                }
+                "diamond" -> {
+                    repeat(4) { i ->
+                        val angle = Math.toRadians((i * 90 - 90).toDouble())
+                        val x = centerX + (r * cos(angle)).toFloat()
+                        val y = centerY + (r * sin(angle)).toFloat()
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    path.close()
+                }
+                "hexagon" -> {
+                    repeat(6) { i ->
+                        val angle = Math.toRadians((i * 60 - 90).toDouble())
+                        val x = centerX + (r * cos(angle)).toFloat()
+                        val y = centerY + (r * sin(angle)).toFloat()
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    path.close()
+                }
+                else -> {
+                    path.moveTo(centerX, centerY - r)
+                    path.lineTo(centerX + r * 0.87f, centerY + r * 0.5f)
+                    path.lineTo(centerX - r * 0.87f, centerY + r * 0.5f)
+                    path.close()
+                }
+            }
+            drawPath(path, fill)
+        }
+        if (label.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
 /**
  * 宿主渲染声明式页面的一行。
  *
@@ -573,5 +649,12 @@ internal fun SimpleRowView(row: SimpleRow, page: SimplePage) {
         SimpleRowKind.SPACE -> Official.Space(row.amount)
         SimpleRowKind.EMPTY -> Official.Empty(row.label)
         SimpleRowKind.BARS -> Official.Bars(row.label, row.numbers, row.value.ifEmpty { null })
+        SimpleRowKind.SHAPE -> Official.Shape(
+            shape = row.value,
+            label = row.label,
+            size = row.amount,
+            colorHex = row.colorHex,
+            onClick = if (row.actionId.isEmpty()) null else ({ page.dispatch(row.actionId) }),
+        )
     }
 }

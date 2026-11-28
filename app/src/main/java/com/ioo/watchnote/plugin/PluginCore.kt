@@ -12,6 +12,14 @@ import com.ioo.watchnote.Store
 const val MAX_PAGES_PER_PLUGIN = 3
 const val MAX_BUTTONS_PER_SLOT = 2
 
+/**
+ * 设置页的行数预算。官方插件自己就占掉 2 行（笔记统计、快捷入口）。
+ * 如果跟别的插槽一样卡 2 个，官方就把预算吃完了，第三方插件的设置行永远注册不上
+ * —— 4.1.32 自测里「外置插件示例包真装一遍」变红就是这个原因。
+ * 所以设置页单独放宽到 4 行：官方 2 行 + 给第三方留 2 行；单个插件仍然最多 2 行。
+ */
+const val MAX_SETTINGS_ROWS = 4
+
 /** 外部插件连续出错几次就自动停用 —— 坏插件不能一直拖累宿主。 */
 const val MAX_PLUGIN_FAILURES = 3
 
@@ -484,8 +492,15 @@ class PluginCore(
         if (spec.slot != ButtonSlot.CARD_ACTION && spec.onCardAction != null) {
             return RegisterResult.Rejected("只有 CARD_ACTION 按钮能带 onCardAction")
         }
-        if (buttons.count { it.spec.slot == spec.slot } >= MAX_BUTTONS_PER_SLOT) {
-            return RegisterResult.Rejected("插槽 " + spec.slot + " 已满（最多 " + MAX_BUTTONS_PER_SLOT + " 个）")
+        // 单个插件在每个插槽最多 2 个：防止一个插件把设置页/页面底部全占了
+        val mine = buttons.count { it.ownerPluginId == owner && it.spec.slot == spec.slot }
+        if (mine >= MAX_BUTTONS_PER_SLOT) {
+            return RegisterResult.Rejected("每个插件在每个插槽最多 " + MAX_BUTTONS_PER_SLOT + " 个按钮")
+        }
+        // 设置页要给官方自己留位置，所以总预算比插槽上限多 2 行
+        val cap = if (spec.slot == ButtonSlot.SETTINGS_ROW) MAX_SETTINGS_ROWS else MAX_BUTTONS_PER_SLOT
+        if (buttons.count { it.spec.slot == spec.slot } >= cap) {
+            return RegisterResult.Rejected("插槽 " + spec.slot + " 已满（最多 " + cap + " 个）")
         }
         buttons.add(PluginButton(owner, spec))
         return RegisterResult.Ok

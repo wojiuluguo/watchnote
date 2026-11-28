@@ -248,4 +248,19 @@ object Official {
     fun Bars(label: String, values: List<Float>, trailing: String? = null) {
         OfficialBars(label, values, trailing)
     }
+
+    /**
+     * 图形行（0.4）：shape 取 triangle / star / diamond / hexagon，
+     * size 是边长 dp，colorHex 为空就用主题色。
+     */
+    @Composable
+    fun Shape(
+        shape: String,
+        label: String = "",
+        size: Int = 56,
+        colorHex: String = "",
+        onClick: (() -> Unit)? = null,
+    ) {
+        OfficialShape(shape, label, size, colorHex, onClick)
+    }
 }
