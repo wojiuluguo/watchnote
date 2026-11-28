@@ -31,6 +31,7 @@ import com.ioo.watchnote.SettingPill
 import com.ioo.watchnote.Store
 import com.ioo.watchnote.SubPageListFrame
 import com.ioo.watchnote.localWifiIp
+import com.ioo.watchnote.plugin.PluginKind
 import com.ioo.watchnote.plugin.external.ExternalInstallPolicy
 import com.ioo.watchnote.plugin.external.ExternalInstallPreview
 import com.ioo.watchnote.plugin.external.ExternalInstallResult
@@ -494,6 +495,62 @@ private fun ExternalPluginDetail(
                 }
             }
         }
+        if (record.kind == PluginKind.LIB) {
+            item(key = "ext-detail-lib-kind") {
+                Fish { Official.Stat("类型", "前置模块（不占界面）") }
+            }
+            item(key = "ext-detail-lib-provides") {
+                Fish {
+                    Text(
+                        "提供 " + record.provides.size + " 个符号给别的插件用：\n" + record.provides.joinToString("\n"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp,
+                    )
+                }
+            }
+            val blocked = core.libraries.info(record.id)?.blocked ?: emptyList()
+            if (blocked.isNotEmpty()) {
+                item(key = "ext-detail-lib-blocked") {
+                    Fish {
+                        Text(
+                            "其中 " + blocked.size + " 个和宿主同名，已单独关闭（其余照常可用）：\n" + blocked.joinToString("\n"),
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 9.5.sp,
+                            lineHeight = 13.sp,
+                        )
+                    }
+                }
+            }
+            val dependents = installer.dependentsOf(record.id)
+            if (dependents.isNotEmpty()) {
+                item(key = "ext-detail-lib-dependents") {
+                    Fish {
+                        Text(
+                            "还有 " + dependents.size + " 个插件在用它：" + dependents.take(3).joinToString("、") { it.name } +
+                                "。要卸载先卸那些。",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 9.5.sp,
+                            lineHeight = 13.sp,
+                        )
+                    }
+                }
+            }
+        }
+        if (record.requires.isNotEmpty()) {
+            item(key = "ext-detail-requires") {
+                Fish {
+                    val problem = installer.dependencyProblemOf(record.requires)
+                    Text(
+                        "依赖前置模块：" + record.requires.joinToString("、") { it.toString() } +
+                            (if (problem != null) "\n" + problem else ""),
+                        color = if (problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp,
+                    )
+                }
+            }
+        }
         item(key = "ext-detail-uninstall") {
             Fish {
                 Official.Button(
@@ -502,9 +559,14 @@ private fun ExternalPluginDetail(
                     danger = true,
                     onClick = {
                         if (confirmUninstall) {
-                            installer.uninstall(record.id)
-                            core.toastHandler?.invoke(record.name + " 已卸载")
-                            onUninstalled()
+                            val ok = installer.uninstall(record.id)
+                            if (ok) {
+                                core.toastHandler?.invoke(record.name + " 已卸载")
+                                onUninstalled()
+                            } else {
+                                core.toastHandler?.invoke("还有插件在用它，先卸载那几个")
+                                confirmUninstall = false
+                            }
                         } else {
                             confirmUninstall = true
                         }
@@ -753,6 +815,13 @@ private fun previewLines(preview: ExternalInstallPreview): List<String> {
     lines.add("大小：" + formatBytes(preview.packageBytes))
     lines.add("包指纹：" + preview.sha256.take(12) + "…")
     lines.add("签名：" + ExternalInstallPolicy.signingLabel(preview.keyFingerprint))
+    if (preview.kind == PluginKind.LIB) {
+        lines.add("类型：前置模块（不占界面，只给别的插件提供能力）")
+        if (preview.provides.isNotEmpty()) lines.add("提供：" + preview.provides.joinToString("、"))
+    } else if (preview.requires.isNotEmpty()) {
+        lines.add("依赖前置：" + preview.requires.joinToString("、") { it.toString() })
+    }
+    preview.dependencyProblem?.let { lines.add("缺前置：" + it) }
     lines.add(
         when {
             preview.isUpgrade -> "升级 v" + preview.installedVersion + " → v" + preview.version

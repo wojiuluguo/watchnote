@@ -1,7 +1,7 @@
 # 插件 API 扩展建议（下一版起）
 
-> 状态：建议稿。**批次 A3「组件扩展」已在 4.1.27（插件模块 0.2）落地**，实际命名与本稿草案不同，见 3.A3 末尾对照表；A1/A2/A4 未做，B/C 未做。
-> 代码基线：4.1.27（136）／PluginApi.API_LEVEL = 2／MODULE_VERSION 0.2
+> 状态：建议稿。**批次 A3「组件扩展」已在 4.1.27（插件模块 0.2）落地**，实际命名与本稿草案不同，见 3.A3 末尾对照表；**4.1.29（0.3）另加了不在本稿的「前置模块」**（lib 型插件 + provides/requires + 单符号冲突隔离，见 `插件模块-API设计.md` 2.6 与 `插件作者手册.md` 九）；A1/A2/A4 未做，B/C 未做。
+> 代码基线：4.1.29（138）／PluginApi.API_LEVEL = 3／MODULE_VERSION 0.3
 > 相关源码：plugin/WristPlugin.kt、DataApi.kt、PageSpec.kt、SimplePage.kt、ButtonSpec.kt、Official.kt、HostScreen.kt、PluginManifest.kt
 >
 > 需求方目标（m09865）：给更多能力方便用户；给更多可能性；更方便、更好用的 UI。

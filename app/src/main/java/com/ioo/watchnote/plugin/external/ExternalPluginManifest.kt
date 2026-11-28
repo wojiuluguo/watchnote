@@ -2,6 +2,8 @@ package com.ioo.watchnote.plugin.external
 
 import com.ioo.watchnote.plugin.Permission
 import com.ioo.watchnote.plugin.PluginApi
+import com.ioo.watchnote.plugin.PluginDependency
+import com.ioo.watchnote.plugin.PluginKind
 import com.ioo.watchnote.plugin.PluginManifest
 import org.json.JSONObject
 import java.io.File
@@ -22,6 +24,12 @@ private const val RESERVED_ID_PREFIX = "com.ioo.watchnote"
 data class ExternalPluginManifest(
     val manifest: PluginManifest,
     val entryClass: String,
+    /** 普通插件还是前置模块（0.3 起）。 */
+    val kind: PluginKind = PluginKind.APP,
+    /** 前置模块对外提供的符号（完整类名）。 */
+    val provides: List<String> = emptyList(),
+    /** 本插件依赖的前置模块。 */
+    val requires: List<PluginDependency> = emptyList(),
     val schemaVersion: Int = EXTERNAL_SCHEMA_VERSION,
     val author: String? = null,
     val description: String? = null,
@@ -42,8 +50,27 @@ sealed interface ExternalManifestResult {
  */
 object ExternalPluginManifestParser {
 
+    /** 一个前置模块最多对外提供多少个符号、一个插件最多依赖多少个前置模块。 */
+    private const val MAX_PROVIDES = 16
+    private const val MAX_REQUIRES = 8
+
     private val idPattern = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")
     private val classNamePattern = Regex("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+")
+
+    /** 解析一条依赖：com.example.uikit 或 com.example.uikit>=2。 */
+    private fun parseDependency(raw: String): PluginDependency? {
+        if (raw.isEmpty() || raw.length > 96) return null
+        val parts = raw.split(">=", limit = 2)
+        val id = parts[0].trim()
+        if (!idPattern.matches(id)) return null
+        val minVersion = if (parts.size == 2) {
+            parts[1].trim().toIntOrNull() ?: return null
+        } else {
+            1
+        }
+        if (minVersion < 1) return null
+        return PluginDependency(id, minVersion)
+    }
 
     fun parseFile(file: File): ExternalManifestResult =
         try {
@@ -119,6 +146,49 @@ object ExternalPluginManifestParser {
             return ExternalManifestResult.Invalid("description 太长（上限 200 字符）")
         }
 
+        // 0.3 起：插件类型、前置模块提供的符号、依赖关系。
+        val kindRaw = root.optString("kind", "app").trim().lowercase()
+        val kind = when (kindRaw) {
+            "app" -> PluginKind.APP
+            "lib" -> PluginKind.LIB
+            else -> return ExternalManifestResult.Invalid("kind 只能是 app 或 lib，实际：" + kindRaw)
+        }
+
+        val provides = ArrayList<String>()
+        if (root.has("provides") && !root.isNull("provides")) {
+            val array = root.optJSONArray("provides")
+                ?: return ExternalManifestResult.Invalid("provides 必须是数组")
+            if (array.length() > MAX_PROVIDES) {
+                return ExternalManifestResult.Invalid("provides 太多（上限 " + MAX_PROVIDES + " 个符号）")
+            }
+            for (i in 0 until array.length()) {
+                val symbol = array.optString(i, "").trim()
+                if (!classNamePattern.matches(symbol)) {
+                    return ExternalManifestResult.Invalid("provides 里的符号必须是完整类名，实际：" + symbol)
+                }
+                if (symbol.length > 128) return ExternalManifestResult.Invalid("provides 里的符号太长（上限 128 字符）")
+                if (!provides.contains(symbol)) provides.add(symbol)
+            }
+        }
+        if (kind == PluginKind.APP && provides.isNotEmpty()) {
+            return ExternalManifestResult.Invalid("只有前置模块（kind=lib）才能写 provides")
+        }
+
+        val requires = ArrayList<PluginDependency>()
+        if (root.has("requires") && !root.isNull("requires")) {
+            val array = root.optJSONArray("requires")
+                ?: return ExternalManifestResult.Invalid("requires 必须是数组")
+            if (array.length() > MAX_REQUIRES) {
+                return ExternalManifestResult.Invalid("requires 太多（上限 " + MAX_REQUIRES + " 个）")
+            }
+            for (i in 0 until array.length()) {
+                val raw = array.optString(i, "").trim()
+                val parsed = parseDependency(raw)
+                    ?: return ExternalManifestResult.Invalid("requires 写法不对：" + raw + "（应像 com.example.uikit 或 com.example.uikit>=2）")
+                if (!requires.any { it.id == parsed.id }) requires.add(parsed)
+            }
+        }
+
         // 作者签名（4.1.14 起，可选）：publicKey 是 Base64 的 X.509 SPKI 公钥；
         // 只给了算法没给公钥、公钥不是合法 Base64、算法不是 SHA256withECDSA，都当场拒绝。
         val signingAlgorithm = root.optString("signingAlgorithm", "").trim().takeIf { it.isNotEmpty() }
@@ -150,8 +220,14 @@ object ExternalPluginManifestParser {
                     version = version,
                     minApi = minApi,
                     permissions = permissions,
+                    kind = kind,
+                    provides = provides,
+                    requires = requires,
                 ),
                 entryClass = entryClass,
+                kind = kind,
+                provides = provides,
+                requires = requires,
                 schemaVersion = schema,
                 author = author,
                 description = description,

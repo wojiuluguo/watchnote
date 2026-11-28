@@ -4,6 +4,8 @@ import android.content.Context
 import com.ioo.watchnote.EventLog
 import com.ioo.watchnote.plugin.Permission
 import com.ioo.watchnote.plugin.PluginCore
+import com.ioo.watchnote.plugin.PluginDependency
+import com.ioo.watchnote.plugin.PluginKind
 import com.ioo.watchnote.plugin.RegisterResult
 import com.ioo.watchnote.plugin.WristPlugin
 import dalvik.system.DexClassLoader
@@ -25,6 +27,12 @@ data class ExternalPluginRecord(
     val fileName: String,
     /** 作者签名公钥指纹；null 表示这个包装的时候没签名。 */
     val keyFingerprint: String? = null,
+    /** 0.3 起：普通插件还是前置模块。 */
+    val kind: PluginKind = PluginKind.APP,
+    /** 前置模块对外提供的符号（普通插件为空）。 */
+    val provides: List<String> = emptyList(),
+    /** 依赖的前置模块。 */
+    val requires: List<PluginDependency> = emptyList(),
 )
 
 /**
@@ -45,6 +53,12 @@ data class ExternalInstallPreview(
     val isUpgrade: Boolean,
     /** 作者签名公钥指纹；null 表示这个包没签名。 */
     val keyFingerprint: String? = null,
+    /** 0.3 起：普通插件还是前置模块；以及它提供/依赖的前置能力。 */
+    val kind: PluginKind = PluginKind.APP,
+    val provides: List<String> = emptyList(),
+    val requires: List<PluginDependency> = emptyList(),
+    /** 依赖里缺哪个、版本差多少；非空表示现在装不了。 */
+    val dependencyProblem: String? = null,
 )
 
 /** 预览结果：Ready 才允许弹确认；Failed 直接告诉用户为什么装不了。 */
@@ -114,8 +128,54 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                 installedVersion = installedVersion,
                 isUpgrade = installedVersion != null && manifest.version > installedVersion,
                 keyFingerprint = keyFingerprint,
+                kind = external.kind,
+                provides = external.provides,
+                requires = external.requires,
+                dependencyProblem = dependencyProblemOf(external.requires),
             ),
         )
+    }
+
+    /**
+     * 检查依赖是否就绪：每个前置模块都要已安装、版本够、而且真的是前置模块。
+     * 返回 null 表示没问题；否则给人话原因（管理页/预览直接显示）。
+     */
+    fun dependencyProblemOf(requires: List<PluginDependency>): String? {
+        for (dep in requires) {
+            val lib = core.libraries.info(dep.id)
+            if (lib == null) {
+                val installed = record(dep.id)
+                return if (installed != null) "前置模块 " + dep.id + " 当前没启用" else
+                    "缺少前置模块 " + dep.id + "（需要 v" + dep.minVersion + " 以上）"
+            }
+            if (lib.version < dep.minVersion) {
+                return "前置模块 " + dep.id + " 版本太低：要 v" + dep.minVersion + " 以上，已装 v" + lib.version
+            }
+        }
+        return null
+    }
+
+    /** 谁在用这个前置模块（卸载前要提醒，别一键把别人的依赖抽走）。 */
+    fun dependentsOf(libId: String): List<ExternalPluginRecord> =
+        readRecords().filter { it.requires.any { dep -> dep.id == libId } }
+
+    /**
+     * 把一个插件的依赖展开成 dex 列表：前置模块的 dex 要排在自己的 dex 前面，
+     * 这样插件代码里 new 前置模块的类才找得到（DexClassLoader 支持多 dex 路径）。
+     */
+    private fun dependencyDexFiles(requires: List<PluginDependency>, depth: Int = 0, seen: MutableSet<String> = HashSet()): List<File> {
+        if (requires.isEmpty()) return emptyList()
+        if (depth > MAX_DEPENDENCY_DEPTH) return emptyList()
+        val out = ArrayList<File>()
+        for (dep in requires) {
+            if (!seen.add(dep.id)) continue
+            val rec = record(dep.id) ?: continue
+            val dir = File(pluginDir(dep.id), rec.version.toString())
+            val dex = dexEntriesIn(dir).map { File(dir, it) }
+            out.addAll(dex)
+            out.addAll(dependencyDexFiles(rec.requires, depth + 1, seen))
+        }
+        return out
     }
 
     /** 自带示例插件的预览（只给确认弹窗看，不装）。 */
@@ -151,7 +211,15 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         val signingProblem = ExternalInstallPolicy.checkSigning(installedRecord?.keyFingerprint, keyFingerprint)
         if (signingProblem != null) return ExternalInstallResult.Failed(signingProblem)
 
-        EventLog.add("plugin", "外置插件安装开始 " + file.name + "（" + file.length() + " B）：" + id + " v" + version)
+        val dependencyProblem = dependencyProblemOf(external.requires)
+        if (dependencyProblem != null) {
+            EventLog.add("plugin", "外置插件缺前置 " + id + "：" + dependencyProblem)
+            return ExternalInstallResult.Failed(dependencyProblem)
+        }
+        val dependencyDex = dependencyDexFiles(external.requires)
+
+        EventLog.add("plugin", "外置插件安装开始 " + file.name + "（" + file.length() + " B）：" + id + " v" + version +
+            "（" + external.kind.name.lowercase() + "，前置 " + external.requires.size + " 个）")
         // 无论记录里有没有，先把宿主里可能残留的同 id 状态收走。否则 core.install 会因为
         // hosts 里还留着旧 entry 直接回「插件已安装：<id>」，4.1.18 真机上就是这么被拒的。
         core.disable(id)
@@ -176,7 +244,7 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             deleteRecursively(codeCache)
             codeCache.mkdirs()
             EventLog.add("plugin", "外置插件已解压 " + finalDir.path + "，dex=" + pkg.dexEntries.size + " 个")
-            val plugin = when (val loaded = loadPlugin(finalDir, pkg.dexEntries, external.entryClass, codeCache, id)) {
+            val plugin = when (val loaded = loadPlugin(finalDir, pkg.dexEntries, external, codeCache, id, dependencyDex)) {
                 is LoadResult.Failed -> {
                     EventLog.add("plugin", "外置插件加载失败 " + id + "：" + loaded.reason)
                     deleteRecursively(pluginDir(id))
@@ -207,6 +275,9 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                 installedAt = System.currentTimeMillis(),
                 fileName = file.name,
                 keyFingerprint = keyFingerprint,
+                kind = external.kind,
+                provides = external.provides,
+                requires = external.requires,
             )
             writeRecords(readRecords().filter { it.id != id } + record)
             EventLog.add("plugin", "外置插件安装完成 " + id + " v" + version)
@@ -266,7 +337,7 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             when (val loaded = loadPlugin(
                 dir = extractDir,
                 dexEntries = pkg.dexEntries,
-                entryClass = pkg.manifest.entryClass,
+                expected = pkg.manifest,
                 codeCache = codeCache,
                 expectedId = pkg.manifest.manifest.id,
             )) {
@@ -348,6 +419,50 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
     }
 
     /** 用户可放包的文件夹（把 .wplugin 放进去，再点「从文件夹安装」）。 */
+    /**
+     * 自测专用：把「前置模块 + 依赖它的两个插件」真装一遍（0.3 的核心链路）。
+     * 顺序：装 uikit（lib）→ 验注册表 → 装 frontui / frontalgo → 验页面 → 验卸载保护 → 全部卸掉。
+     * 返回 null = 通过。
+     */
+    fun selfTestFrontModules(): String? {
+        val installed = ArrayList<String>()
+        fun cacheAsset(asset: String): File {
+            val f = File(appContext.cacheDir, "selftest-" + File(asset).name)
+            appContext.assets.open(asset).use { input -> f.outputStream().use { output -> input.copyTo(output) } }
+            return f
+        }
+        return try {
+            val kitResult = installFromFile(cacheAsset(FRONT_KIT_SAMPLE))
+            if (kitResult is ExternalInstallResult.Failed) return "前置模块装不上：" + kitResult.reason
+            installed.add("com.example.uikit")
+            val kit = core.libraries.info("com.example.uikit") ?: return "前置模块装上了却没进注册表"
+            if (kit.version != 1) return "前置版本不对：" + kit.version
+            if (kit.provides != listOf("com.example.uikit.FrontKit")) return "provides 不对：" + kit.provides
+            if (kit.blocked.isNotEmpty()) return "uikit 没有同名符号，却被关了：" + kit.blocked
+
+            val uiResult = installFromFile(cacheAsset(FRONT_UI_SAMPLE))
+            if (uiResult is ExternalInstallResult.Failed) return "依赖前置的 UI 插件装不上：" + uiResult.reason
+            installed.add("com.example.frontui")
+            if (core.pagesOf("com.example.frontui").isEmpty()) return "UI 插件装了却没注册页面"
+
+            val algoResult = installFromFile(cacheAsset(FRONT_ALGO_SAMPLE))
+            if (algoResult is ExternalInstallResult.Failed) return "依赖前置的算法插件装不上：" + algoResult.reason
+            installed.add("com.example.frontalgo")
+            if (core.pagesOf("com.example.frontalgo").isEmpty()) return "算法插件装了却没注册页面"
+
+            // 还有插件依赖它时，前置模块不许被一键卸掉。
+            if (uninstall("com.example.uikit")) return "前置模块被别的插件依赖，却允许卸载"
+            null
+        } catch (t: Throwable) {
+            "抛异常：" + describe(t)
+        } finally {
+            installed.reversed().forEach { runCatching { uninstall(it) } }
+            listOf(FRONT_KIT_SAMPLE, FRONT_UI_SAMPLE, FRONT_ALGO_SAMPLE).forEach {
+                File(appContext.cacheDir, "selftest-" + File(it).name).delete()
+            }
+        }
+    }
+
     fun inboxDir(): File {
         val base = appContext.getExternalFilesDir(null) ?: appContext.cacheDir
         val dir = File(base, DIR_INBOX)
@@ -369,6 +484,13 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
 
     /** 真卸载：插件代码、数据、目录、记录一起清。 */
     fun uninstall(pluginId: String): Boolean {
+        // 前置模块被别的插件依赖时不准一键卸掉：否则那些插件下次启动就装不回来了。
+        val dependents = dependentsOf(pluginId)
+        if (dependents.isNotEmpty()) {
+            val names = dependents.take(3).joinToString("、") { it.name } + if (dependents.size > 3) " 等" else ""
+            EventLog.add("plugin", "拒绝卸载前置模块 " + pluginId + "：还有 " + dependents.size + " 个插件在用（" + names + "）")
+            return false
+        }
         core.uninstall(pluginId)
         deleteRecursively(pluginDir(pluginId))
         deleteRecursively(codeCacheDir(pluginId))
@@ -380,8 +502,17 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
     fun restoreAll(): Int {
         var restored = 0
         val kept = ArrayList<ExternalPluginRecord>()
-        for (record in readRecords()) {
+        // 前置模块必须先恢复，否则依赖它的插件会因为「前置没启用」被跳过。
+        val records = readRecords().sortedBy { if (it.kind == PluginKind.LIB) 0 else 1 }
+        for (record in records) {
             if (core.isInstalled(record.id)) {
+                kept.add(record)
+                continue
+            }
+            val dependencyProblem = dependencyProblemOf(record.requires)
+            if (dependencyProblem != null) {
+                // 记录留着：前置模块装好之后，下次启动还能自动恢复，不用用户重装一遍。
+                EventLog.add("plugin", "外置插件恢复暂缓 " + record.id + "：" + dependencyProblem)
                 kept.add(record)
                 continue
             }
@@ -394,7 +525,14 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             val codeCache = codeCacheDir(record.id)
             deleteRecursively(codeCache)
             codeCache.mkdirs()
-            val loaded = loadPlugin(dir, dexEntries, record.entryClass, codeCache, record.id)
+            val loaded = loadPlugin(
+                dir = dir,
+                dexEntries = dexEntries,
+                expected = expectedManifestOf(record),
+                codeCache = codeCache,
+                expectedId = record.id,
+                extraDex = dependencyDexFiles(record.requires),
+            )
             if (loaded is LoadResult.Failed) {
                 EventLog.add("plugin", "外置插件恢复失败 " + record.id + "：" + loaded.reason)
                 deleteRecursively(pluginDir(record.id))
@@ -413,6 +551,23 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         writeRecords(kept)
         return restored
     }
+
+    /** 从落盘记录还原出「加载时用于核对的那份清单」。 */
+    private fun expectedManifestOf(record: ExternalPluginRecord): ExternalPluginManifest =
+        ExternalPluginManifest(
+            manifest = com.ioo.watchnote.plugin.PluginManifest(
+                id = record.id,
+                name = record.name,
+                version = record.version,
+                kind = record.kind,
+                provides = record.provides,
+                requires = record.requires,
+            ),
+            entryClass = record.entryClass,
+            kind = record.kind,
+            provides = record.provides,
+            requires = record.requires,
+        )
 
     private fun extract(packageFile: File, target: File) {
         ZipFile(packageFile).use { zip ->
@@ -447,9 +602,10 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
     private fun loadPlugin(
         dir: File,
         dexEntries: List<String>,
-        entryClass: String,
+        expected: ExternalPluginManifest,
         codeCache: File,
         expectedId: String,
+        extraDex: List<File> = emptyList(),
     ): LoadResult {
         val dexFiles = dexEntries.map { File(dir, it) }
         // Android 14+ 会拒绝加载「应用可写」的 dex（SecurityException: Writable dex file ... is not allowed）。
@@ -460,20 +616,22 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                 f.setReadOnly()
             }
         }
-        val first = runCatching { loadPluginAttempt(dexFiles, entryClass, codeCache, expectedId) }
+        val first = runCatching { loadPluginAttempt(dexFiles, extraDex, expected, codeCache, expectedId) }
         first.getOrNull()?.let { return it }
-        val second = runCatching { loadPluginAttempt(dexFiles, entryClass, codeCache, expectedId) }
+        val second = runCatching { loadPluginAttempt(dexFiles, extraDex, expected, codeCache, expectedId) }
         second.getOrNull()?.let { return it }
         return LoadResult.Failed(describe(second.exceptionOrNull() ?: first.exceptionOrNull()))
     }
 
     private fun loadPluginAttempt(
         dexFiles: List<File>,
-        entryClass: String,
+        extraDex: List<File>,
+        expected: ExternalPluginManifest,
         codeCache: File,
         expectedId: String,
     ): LoadResult {
-        val dexPath = dexFiles.joinToString(File.pathSeparator) { it.absolutePath }
+        val dexPath = (extraDex + dexFiles).joinToString(File.pathSeparator) { it.absolutePath }
+        val entryClass = expected.entryClass
         val loader = DexClassLoader(dexPath, codeCache.absolutePath, null, appContext.classLoader)
         val cls = Class.forName(entryClass, true, loader)
         if (!WristPlugin::class.java.isAssignableFrom(cls)) {
@@ -484,6 +642,17 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         val plugin = ctor.newInstance() as WristPlugin
         if (plugin.manifest.id != expectedId) {
             return LoadResult.Failed("代码里的插件 id 与清单不一致：" + plugin.manifest.id + " ≠ " + expectedId)
+        }
+        // 清单说它是前置模块、代码里却按普通插件写（或者反过来），一律按不一致处理：
+        // 否则宿主放行了不该放行的页面，或者插件以为能拿到前置却没有。
+        if (plugin.manifest.kind != expected.kind) {
+            return LoadResult.Failed("代码里的插件类型与清单不一致：" + plugin.manifest.kind + " ≠ " + expected.kind)
+        }
+        if (plugin.manifest.provides.sorted() != expected.provides.sorted()) {
+            return LoadResult.Failed("代码里的 provides 与清单不一致")
+        }
+        if (plugin.manifest.requires.map { it.toString() }.sorted() != expected.requires.map { it.toString() }.sorted()) {
+            return LoadResult.Failed("代码里的 requires 与清单不一致")
         }
         return LoadResult.Loaded(plugin)
     }
@@ -540,6 +709,9 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
                         installedAt = item.optLong("installedAt", 0L),
                         fileName = item.optString("fileName", ""),
                         keyFingerprint = item.optString("keyFingerprint", "").takeIf { it.isNotEmpty() },
+                        kind = if (item.optString("kind", "app") == "lib") PluginKind.LIB else PluginKind.APP,
+                        provides = readStringList(item.optJSONArray("provides")),
+                        requires = readDependencyList(item.optJSONArray("requires")),
                     ),
                 )
             }
@@ -562,10 +734,30 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
             item.put("installedAt", record.installedAt)
             item.put("fileName", record.fileName)
             item.put("keyFingerprint", record.keyFingerprint ?: "")
+            item.put("kind", if (record.kind == PluginKind.LIB) "lib" else "app")
+            item.put("provides", JSONArray(record.provides))
+            item.put("requires", JSONArray(record.requires.map { it.toString() }))
             array.put(item)
         }
         prefs.edit().putString(KEY_RECORDS, array.toString()).apply()
     }
+
+    private fun readStringList(array: JSONArray?): List<String> {
+        if (array == null) return emptyList()
+        val out = ArrayList<String>()
+        for (i in 0 until array.length()) {
+            val v = array.optString(i, "").trim()
+            if (v.isNotEmpty()) out.add(v)
+        }
+        return out
+    }
+
+    private fun readDependencyList(array: JSONArray?): List<PluginDependency> =
+        readStringList(array).mapNotNull { raw ->
+            val parts = raw.split(">=", limit = 2)
+            val id = parts[0].trim()
+            if (id.isEmpty()) null else PluginDependency(id, parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 1)
+        }
 
     private fun deleteRecursively(file: File) {
         if (!file.exists()) return
@@ -578,6 +770,12 @@ class ExternalPluginInstaller(context: Context, private val core: PluginCore) {
         const val BUNDLED_SAMPLE = "plugins/hello.wplugin"
         /** 4.1.21 起内置的第二个示例包：带页面（按钮型示例只加一行按钮，覆盖不到页面链路）。 */
         const val PAGE_SAMPLE = "plugins/page-demo.wplugin"
+        /** 4.1.29 起内置的三个前置模块示例：前置本体 + 两个依赖它的插件。 */
+        const val FRONT_KIT_SAMPLE = "plugins/uikit.wplugin"
+        const val FRONT_UI_SAMPLE = "plugins/frontui.wplugin"
+        const val FRONT_ALGO_SAMPLE = "plugins/frontalgo.wplugin"
+        /** 前置依赖最多嵌套几层（A 依赖 B、B 再依赖 C），防环、防死循环。 */
+        private const val MAX_DEPENDENCY_DEPTH = 4
         private const val PREFS_NAME = "watchnote_external_plugins"
         private const val KEY_RECORDS = "records"
         private const val DIR_PLUGINS = "plugins"

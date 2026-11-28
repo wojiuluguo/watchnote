@@ -25,6 +25,12 @@ interface PluginHost {
     val data: DataApi
     val events: EventBus
 
+    /**
+     * 前置模块查询口（0.3 起）：装了什么前置模块、它提供了哪些符号、哪些和宿主同名被关掉了。
+     * 插件用 [LibraryApi.available] 决定要不要降级，而不是把整个插件判死。
+     */
+    val libraries: LibraryApi
+
     /** 宿主界面状态被插件改了（比如换了主题色），喊一声让宿主重画。 */
     fun invalidate()
 

@@ -134,6 +134,7 @@ internal fun PluginSelfTestPage(
     externalSelfTest: () -> String?,
     externalSelfTestInstall: () -> String?,
     externalPageSelfTestInstall: () -> String?,
+    externalFrontSelfTest: () -> String?,
     onExport: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -147,7 +148,13 @@ internal fun PluginSelfTestPage(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
         )
         val results = remember {
-            PluginSelfTest.run(store, externalSelfTest, externalSelfTestInstall, externalPageSelfTestInstall)
+            PluginSelfTest.run(
+                store,
+                externalSelfTest,
+                externalSelfTestInstall,
+                externalPageSelfTestInstall,
+                externalFrontSelfTest,
+            )
         }
         val failed = results.count { !it.ok }
         LaunchedEffect(Unit) {

@@ -52,6 +52,7 @@ object PluginSelfTest {
         externalSelfTest: (() -> String?)? = null,
         externalSelfTestInstall: (() -> String?)? = null,
         externalPageSelfTestInstall: (() -> String?)? = null,
+        externalFrontSelfTest: (() -> String?)? = null,
     ): List<PluginSelfTestResult> {
         val results = ArrayList<PluginSelfTestResult>()
         fun check(name: String, block: () -> String?) {
@@ -625,6 +626,10 @@ object PluginSelfTest {
                 "com.ioo.watchnote.plugin.ButtonSpec",
                 "com.ioo.watchnote.plugin.ButtonSlot",
                 "com.ioo.watchnote.plugin.PluginManifest",
+                "com.ioo.watchnote.plugin.PluginKind",
+                "com.ioo.watchnote.plugin.PluginDependency",
+                "com.ioo.watchnote.plugin.PluginLibraries",
+                "com.ioo.watchnote.plugin.LibraryApi",
                 "com.ioo.watchnote.plugin.ButtonRegistry",
                 // 0.2 新增的官方 UI 门面：Java 插件按名字调这些方法，名字一改就 NoSuchMethodError
                 "com.ioo.watchnote.plugin.Official",
@@ -781,6 +786,110 @@ object PluginSelfTest {
             if (got != "toggle:off") return@check "开关行关不对：" + got
             page.dispatch("plain")
             if (got != "plain") "普通行回调被改了：" + got else null
+        }
+
+        // 35. 清单层：前置模块（kind=lib）与依赖（requires）能被解析；普通插件乱写 provides 要当场拒绝。
+        check("清单能声明前置模块与依赖") {
+            val libJson = JSONObject().put("schemaVersion", 1).put("id", "com.example.uikit")
+                .put("name", "UI 前置").put("version", 2).put("entryClass", "com.example.uikit.Kit")
+                .put("kind", "lib")
+                .put("provides", JSONArray(listOf("com.example.uikit.Mini", "com.example.uikit.Circle")))
+                .toString()
+            val lib = ExternalPluginManifestParser.parse(libJson)
+            if (lib !is ExternalManifestResult.Valid) {
+                return@check "前置清单解析失败：" + (lib as ExternalManifestResult.Invalid).reason
+            }
+            if (lib.parsed.kind != PluginKind.LIB) return@check "kind 没解析成 lib"
+            if (lib.parsed.provides.size != 2) return@check "provides 数量不对：" + lib.parsed.provides.size
+
+            val appJson = JSONObject().put("schemaVersion", 1).put("id", "com.example.frontui")
+                .put("name", "前置 UI 示例").put("version", 1).put("entryClass", "com.example.frontui.UiPlugin")
+                .put("requires", JSONArray(listOf("com.example.uikit>=2"))).toString()
+            val app = ExternalPluginManifestParser.parse(appJson)
+            if (app !is ExternalManifestResult.Valid) {
+                return@check "依赖清单解析失败：" + (app as ExternalManifestResult.Invalid).reason
+            }
+            val dep = app.parsed.requires.firstOrNull()
+            if (dep == null || dep.id != "com.example.uikit" || dep.minVersion != 2) {
+                return@check "依赖没解析对：" + app.parsed.requires
+            }
+
+            val bad = ExternalPluginManifestParser.parse(
+                JSONObject().put("schemaVersion", 1).put("id", "com.example.bad").put("name", "坏")
+                    .put("version", 1).put("entryClass", "com.example.bad.P")
+                    .put("provides", JSONArray(listOf("com.example.bad.X"))).toString(),
+            )
+            if (bad is ExternalManifestResult.Valid) "普通插件写 provides 居然通过了" else null
+        }
+
+        // 36. 前置依赖没满足：装不上，而且原因要能看出缺谁、差多少版本。
+        check("前置不满足时安装会被明确拒绝") {
+            val core = PluginCore(store)
+            val app = ProbePlugin(
+                PluginManifest(
+                    id = "test.frontapp", name = "依赖插件", version = 1,
+                    requires = listOf(PluginDependency("test.frontlib", 2)),
+                ),
+            ) {}
+            val missing = core.install(app)
+            if (missing !is RegisterResult.Rejected) return@check "缺前置居然装上了"
+            if (!missing.reason.contains("缺少前置模块")) return@check "原因没说清楚：" + missing.reason
+
+            val lib = ProbePlugin(PluginManifest(id = "test.frontlib", name = "前置", version = 1, kind = PluginKind.LIB)) {}
+            if (core.install(lib) !is RegisterResult.Ok) return@check "前置模块装不上："
+            val tooLow = core.install(app)
+            if (tooLow !is RegisterResult.Rejected) return@check "版本不够居然装上了"
+            if (!tooLow.reason.contains("版本太低")) "版本原因没说清楚：" + tooLow.reason else null
+        }
+
+        // 37. 前置模块只许提供能力：一旦注册页面/按钮，整单拒绝并回滚，不许占界面。
+        check("前置模块不许注册页面或按钮") {
+            val core = PluginCore(store)
+            val lib = ProbePlugin(
+                PluginManifest(id = "test.badlib", name = "越界前置", version = 1, kind = PluginKind.LIB),
+            ) { host -> host.pages.add(page(id = "test.badlib:page")) }
+            val r = core.install(lib)
+            if (r is RegisterResult.Ok) return@check "前置模块注册页面居然通过了"
+            if (core.isInstalled("test.badlib")) "被拒了但还留在已安装列表里" else null
+        }
+
+        // 38. 用户要求的「保底」：一个符号和宿主同名只关那一个，其余照常可用。
+        check("前置符号同名只关那一个") {
+            val libs = PluginLibraries()
+            libs.register("test.symlib", 1, listOf("java.lang.String", "com.example.uikit.Mini"))
+            val info = libs.info("test.symlib") ?: return@check "前置没登记"
+            if (info.blocked != listOf("java.lang.String")) return@check "被关掉的符号不对：" + info.blocked
+            val api = libs.api()
+            if (!api.available("test.symlib", "com.example.uikit.Mini")) return@check "没冲突的符号也被关了"
+            if (api.available("test.symlib", "java.lang.String")) return@check "同名符号没关"
+            if (api.available("test.symlib", "com.example.notdeclared")) "没声明的符号被放行了" else null
+        }
+
+        // 39. 前置装好之后，依赖它的插件能正常安装；前置也要进注册表（供插件查询）。
+        check("前置装好后依赖它的插件可以安装") {
+            val core = PluginCore(store)
+            val lib = ProbePlugin(
+                PluginManifest(
+                    id = "test.oklib", name = "前置", version = 3, kind = PluginKind.LIB,
+                    provides = listOf("com.example.oklib.Mini"),
+                ),
+            ) {}
+            if (core.install(lib) !is RegisterResult.Ok) return@check "前置模块装不上"
+            val app = ProbePlugin(
+                PluginManifest(
+                    id = "test.okapp", name = "应用", version = 1,
+                    requires = listOf(PluginDependency("test.oklib", 3)),
+                ),
+            ) {}
+            val r = core.install(app)
+            if (r !is RegisterResult.Ok) return@check "依赖满足却装不上：" + (r as RegisterResult.Rejected).reason
+            if (!core.libraries.api().installed("test.oklib")) "前置没登记到注册表" else null
+        }
+
+        // 40. 0.3 的核心链路：前置模块 + 依赖它的两个插件，真装一遍。
+        //     覆盖「前置进注册表」「依赖方装得上」「有依赖时前置不能卸」三件事。
+        if (externalFrontSelfTest != null) {
+            check("前置模块示例包真装一遍") { externalFrontSelfTest.invoke() }
         }
 
         return results

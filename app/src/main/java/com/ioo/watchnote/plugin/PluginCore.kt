@@ -152,6 +152,7 @@ class PluginHostImpl(
     override val buttons: ButtonRegistry = ButtonRegistry(core, manifest.id) { registerRejections.add(it) }
     override val data: DataApi = DataApiImpl(core.store, manifest, kv)
     override val events: EventBus = core.busOf(manifest.id)
+    override val libraries: LibraryApi = core.libraries.api()
 
     override fun invalidate() { core.invalidate() }
     override fun toast(message: String) { core.toastHandler?.invoke(message) }
@@ -170,7 +171,12 @@ class PluginHostImpl(
 /**
  * @param kvFactory 给插件私有数据提供一个落盘实现（传了 Context 就落盘，没传就纯内存，自测用）。
  */
-class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueStore)? = null) {
+class PluginCore(
+    val store: Store,
+    private val kvFactory: ((String) -> KeyValueStore)? = null,
+    /** 前置模块注册表（0.3 起）；自测可以传自己的实例。 */
+    val libraries: PluginLibraries = PluginLibraries(),
+) {
     private val pages = mutableStateListOf<PluginPage>()
     private val buttons = mutableStateListOf<PluginButton>()
     val manifests = mutableStateListOf<PluginManifest>()
@@ -348,10 +354,40 @@ class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueS
         val host = PluginHostImpl(manifest, this, kvOf(manifest.id))
         host.plugin = plugin
         hosts[manifest.id] = host
+        // 前置依赖必须先满足：缺哪个、差多少版本都说清楚，不是一句「装不了」。
+        if (manifest.requires.isNotEmpty()) {
+            for (dep in manifest.requires) {
+                val info = libraries.info(dep.id)
+                if (info == null) {
+                    val reason = "缺少前置模块 " + dep.id + "（需要 v" + dep.minVersion + " 以上）"
+                    installErrors[manifest.id] = reason
+                    hosts.remove(manifest.id)
+                    return RegisterResult.Rejected(reason)
+                }
+                if (info.version < dep.minVersion) {
+                    val reason = "前置模块 " + dep.id + " 版本太低：要 v" + dep.minVersion + " 以上，已装 v" + info.version
+                    installErrors[manifest.id] = reason
+                    hosts.remove(manifest.id)
+                    return RegisterResult.Rejected(reason)
+                }
+            }
+        }
         return try {
             plugin.install(host)
             if (host.registerRejections.isNotEmpty()) {
                 EventLog.add("plugin", "插件 " + manifest.id + " 安装时有注册被拒绝：" + host.registerRejections.joinToString("；"))
+            }
+            // 前置模块只许提供能力，不许占用任何界面位置；装了页面/按钮就是违约，整单退回。
+            if (manifest.kind == PluginKind.LIB) {
+                val pageCount = pages.count { it.ownerPluginId == manifest.id }
+                val buttonCount = buttons.count { it.ownerPluginId == manifest.id }
+                if (pageCount > 0 || buttonCount > 0) {
+                    val reason = "前置模块不能注册页面或按钮（页 " + pageCount + " 个、按钮 " + buttonCount + " 个）"
+                    installErrors[manifest.id] = reason
+                    uninstall(manifest.id)
+                    return RegisterResult.Rejected(reason)
+                }
+                libraries.register(manifest.id, manifest.version, manifest.provides)
             }
             manifests.add(manifest)
             installErrors.remove(manifest.id)
@@ -383,6 +419,7 @@ class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueS
         removePagesOf(pluginId)
         removeButtonsOf(pluginId)
         manifests.removeAll { it.id == pluginId }
+        libraries.remove(pluginId)
         kvStores.remove(pluginId)?.clear()
         failureCounts.remove(pluginId)
         return true
@@ -398,6 +435,7 @@ class PluginCore(val store: Store, private val kvFactory: ((String) -> KeyValueS
         removePagesOf(pluginId)
         removeButtonsOf(pluginId)
         manifests.removeAll { it.id == pluginId }
+        libraries.remove(pluginId)
         failureCounts.remove(pluginId)
         return true
     }

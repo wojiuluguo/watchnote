@@ -29,6 +29,7 @@
 > 确认弹窗由官方 Wear AlertDialog 换成自绘（小米缺 `WearHapticFeedbackConstants` 会闪退），随后外观还原成大圆 ✕/✓ 按钮（4.1.24 / 133、4.1.25 / 134）；
 > App 内检查更新（GitHub Releases latest + 说明 + 下载进度条，启动不联网）（4.1.26 / 135）；
 > App 内更新「下载完直接装」：不再往公共 Download 写（手表没有文件管理器），APK 存 App 私有 `updates` 目录，用 FileProvider 交 content:// 给系统安装器，Manifest 加 `REQUEST_INSTALL_PACKAGES`，没权限先跳「安装未知应用」开关页（4.1.28 / versionCode 137）。插件 API 没有变化，自测仍 34 项；
+> **插件模块 0.3 · 前置模块**：清单加 `kind`（app/lib）、`provides`、`requires`；lib 型插件只对外暴露 API、不能有页面和按钮；`PluginHost.libraries`（installed/version/available/blocked）让插件先问再降级；冲突按**单个符号**隔离（官方占用同名类只关那一个，其余照用）；缺前置或版本低时只有依赖者装不上；卸载仍被依赖的前置会被拒绝；前置 dex 拼进依赖者的 DexClassLoader（限深 4 层）所以能直接调它的静态方法；`API_LEVEL` 2→3、`MODULE_VERSION` 0.2→0.3，自测 40 项（4.1.29 / versionCode 138）。
 > **插件模块 0.2**：把宿主在用的官方 UI 全部封成插件 API——`SimplePage` 扩充到 17 种行（section/note/hero/item/progress/ring/stepper/chips/colorCard/timeCard/toggle/divider/space/empty/bars）并给 Kotlin 侧补齐同名 `Official.*`，带参数行的回调编号定死（`id:序号` / `id:±步` / `id:on|off`），`PluginApi.API_LEVEL` 1→2、`MODULE_VERSION` 0.1→0.2，自测 34 项（4.1.27 / versionCode 136）。
 
 ## 一句话结论
@@ -320,11 +321,39 @@ when (result) {
 - 页面配额、id 前缀、卸载回收和 `PageSpec` 完全一样（每插件最多 3 页）。
 
 
+### 2.6 前置模块（lib 型插件，4.1.29 起）
+
+「插件的前置插件」：一个只对外提供 API、不占任何界面的包。它可以是 UI 工具（官方组件的
+组合封装），也可以是纯算法（时间格式化、统计、解析）。别的插件声明依赖后，可以直接调它的
+静态方法，不用把代码抄一遍。
+
+    // 前置：kind = lib，provides 声明对外符号
+    PluginManifest("com.example.uikit", "示例前置", 1, kind = PluginKind.LIB,
+        provides = listOf("com.example.uikit.FrontKit"))   // 完整类名，≤16 个
+
+    // 依赖方
+    PluginManifest("com.example.frontui", "前置 UI 示例", 1,
+        requires = listOf(PluginDependency("com.example.uikit", 1)))  // id 或 id>=版本
+
+- **零界面**：lib 安装成功后如果注册了页面或按钮，直接判 Rejected 并回滚（自测第 37 项）。
+- **先问再用**：`host.libraries.installed(id)` / `version(id)` / `available(id, "类名")` / `blocked(id)`。
+  `available` 为 false 时插件应自己降级（示例 frontui 会退回官方组件，frontalgo 退回简单写法）。
+- **同名隔离**：注册 provides 时逐个类名 `Class.forName`，宿主类加载器已经有这个类（官方占用）
+  就只把**这一个符号**记进 `blocked`，别的符号照常可用；插件可以用 `available` 判断后绕开。
+  绝不因为一个重名把整包禁掉（自测第 38 项）。
+- **依赖失败只影响依赖者**：缺前置 / 版本低于 `minVersion` → 装依赖者时 Rejected 并写明缺谁；
+  前置自己不受影响（自测第 36 项）。启动恢复时前置优先装，缺前置的依赖者暂缓、不丢记录。
+- **类从哪来**：安装依赖者时把它 require 的前置 dex 一起拼进 DexClassLoader（`dependencyDexFiles`，
+  最多 4 层），父加载器是宿主，所以前置能用宿主 ABI、依赖者能直接 `FrontKit.fmtMins(x)`。
+- **卸载保护**：还有依赖者时卸载前置返回 false，管理页列出「谁在用它」；先卸依赖者再卸前置。
+- **配额**：provides ≤16 个、每个 ≤128 字符；requires ≤8 个、每项 `id` 或 `id>=2`。
+
 ## 代码在哪
 
     app/src/main/java/com/ioo/watchnote/plugin/
       PluginManifest.kt      PluginApi.API_LEVEL / Permission / PluginManifest
-      WristPlugin.kt         WristPlugin / PluginHost
+      WristPlugin.kt         WristPlugin / PluginHost / LibraryApi
+      PluginLibraries.kt     前置模块注册表（provides 登记、同名按符号隔离、卸载回收）
       PageSpec.kt            PageKind / PageScope / PluginPageSpec / PageSpec / ListPageSpec / PluginListScope / RegisterResult
       HostScreen.kt          插件可直接引用的官方页面白名单（openHostPage 的枚举）
       external/ExternalPluginManifest.kt 外置插件 v2 的 plugin.json 契约与校验器
