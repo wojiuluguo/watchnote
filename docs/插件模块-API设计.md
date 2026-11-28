@@ -30,6 +30,7 @@
 > App 内检查更新（GitHub Releases latest + 说明 + 下载进度条，启动不联网）（4.1.26 / 135）；
 > App 内更新「下载完直接装」：不再往公共 Download 写（手表没有文件管理器），APK 存 App 私有 `updates` 目录，用 FileProvider 交 content:// 给系统安装器，Manifest 加 `REQUEST_INSTALL_PACKAGES`，没权限先跳「安装未知应用」开关页（4.1.28 / versionCode 137）。插件 API 没有变化，自测仍 34 项；
 > **插件模块 0.3 · 前置模块**：清单加 `kind`（app/lib）、`provides`、`requires`；lib 型插件只对外暴露 API、不能有页面和按钮；`PluginHost.libraries`（installed/version/available/blocked）让插件先问再降级；冲突按**单个符号**隔离（官方占用同名类只关那一个，其余照用）；缺前置或版本低时只有依赖者装不上；卸载仍被依赖的前置会被拒绝；前置 dex 拼进依赖者的 DexClassLoader（限深 4 层）所以能直接调它的静态方法；`API_LEVEL` 2→3、`MODULE_VERSION` 0.2→0.3，自测 40 项（4.1.29 / versionCode 138）。
+> **插件模块 0.4 · SHAPE 形状行**：`SimplePage` 加第 18 种行 `shape(name, label, sizeDp, colorHex, actionId)`——`name` 取 triangle/star/diamond/hexagon（不认识按 triangle 画），`sizeDp` 24~120 默认 56，颜色留空跟主题；Kotlin 侧补齐 `Official.Shape`。纯增量，不改任何现有行语义，`PluginApi.API_LEVEL` 3→4、`MODULE_VERSION` 0.3→0.4，自测 40 项（4.1.30 / versionCode 139）。
 > **插件模块 0.2**：把宿主在用的官方 UI 全部封成插件 API——`SimplePage` 扩充到 17 种行（section/note/hero/item/progress/ring/stepper/chips/colorCard/timeCard/toggle/divider/space/empty/bars）并给 Kotlin 侧补齐同名 `Official.*`，带参数行的回调编号定死（`id:序号` / `id:±步` / `id:on|off`），`PluginApi.API_LEVEL` 1→2、`MODULE_VERSION` 0.1→0.2，自测 34 项（4.1.27 / versionCode 136）。
 
 ## 一句话结论
@@ -297,7 +298,7 @@ when (result) {
 - 这条不算插件 API 扩展（没有新增可调用方法），是宿主对 `page()` 的兜底入口；
   插件想同时放设置行、页面底部按钮也照旧。
 
-### 2.5 声明式页面 SimplePage（4.1.21 起，0.2 扩到 17 种行）
+### 2.5 声明式页面 SimplePage（4.1.21 起；0.2 扩到 17 种行，0.4 加 shape 共 18 种）
 
 外置插件是独立编译的，没有 Compose 编译器，所以给它们的页面不能是 `@Composable content`，
 只能是**声明式行**：插件交「有哪些行、每行什么数据、点按回调 id」，宿主负责画。
@@ -347,6 +348,31 @@ when (result) {
   最多 4 层），父加载器是宿主，所以前置能用宿主 ABI、依赖者能直接 `FrontKit.fmtMins(x)`。
 - **卸载保护**：还有依赖者时卸载前置返回 false，管理页列出「谁在用它」；先卸依赖者再卸前置。
 - **配额**：provides ≤16 个、每个 ≤128 字符；requires ≤8 个、每项 `id` 或 `id>=2`。
+
+### 2.7 SHAPE 形状行（0.4，4.1.30 起）
+
+「页面上放一个小图形」不值得为它另开一套绘制 API，所以 shape 仍是声明式行的一种：插件只交
+形状名、标签、边长、颜色，宿主用官方实现画。它是第 18 种行，和 section / bars 同级，Java 与
+Kotlin 两个入口同一份实现。
+
+    // 声明式页面：链式加一行
+    new SimplePage("demo", "形状")
+        .shape("star", "连签 7 天", 64, "#FFB300", "streak")
+        .onAction(id -> { /* id 就是 streak */ });
+
+    // Kotlin 侧：想直接在 Compose 页面里摆一个
+    Official.Shape(shape = "diamond", label = "重点", size = 48, colorHex = "#3DDC84")
+
+- **形状名**：triangle / star / diamond / hexagon 四种。写错不报错、不丢整页，按 triangle 画——
+  插件降级，而不是崩在用户脸上。
+- **边长**：`sizeDp` 24~120，默认 56。小于 24 看不清，大于 120 会和标题抢位置，所以两端都卡住。
+- **颜色**：`colorHex` 填 `#RRGGBB`；留空用主题色，跟随换肤。
+- **点按**：`actionId` 非空时点一下把这个字符串原样回传（和 button / item 一样，不拼序号）；
+  留空就是不响应。
+- **版本纪律**：用 shape 的插件在 plugin.json 写 `"minApi": 4`；老宿主（API_LEVEL 3）直接拒绝
+  安装，不会装上去再 NoSuchMethodError。这次只加这一种行，其余 17 种行语义一字未动，
+  `API_LEVEL` 3→4、`MODULE_VERSION` 0.3→0.4。
+- **示例**：assets 里的 shapekit.wplugin 一页摆四种形状，装上就能看效果；自测 40 项全绿。
 
 ## 代码在哪
 
