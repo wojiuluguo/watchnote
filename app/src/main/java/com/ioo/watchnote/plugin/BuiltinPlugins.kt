@@ -1,6 +1,7 @@
 package com.ioo.watchnote.plugin
 
 import com.ioo.watchnote.Store
+import com.ioo.watchnote.plugin.builtin.CanvasDemoPlugin
 import com.ioo.watchnote.plugin.builtin.NoteInfoPlugin
 import com.ioo.watchnote.plugin.builtin.ShortcutsPlugin
 import com.ioo.watchnote.plugin.builtin.StatsPlugin
@@ -41,6 +42,13 @@ object BuiltinPlugins {
             name = "笔记详情",
             summary = "默认关闭：每条笔记卡片上多一个 ⓘ，点开看这条笔记的字数、创建/更新时间",
             build = { store, _ -> NoteInfoPlugin(store) },
+            defaultEnabled = false,
+        ),
+        BuiltinPluginEntry(
+            id = CanvasDemoPlugin.PLUGIN_ID,
+            name = "画布演示",
+            summary = "默认关闭：0.4.5 活样板——容器树、元素画布（点一下改数值）、整页自绘、host.net() 联网；打开后指示栏会从 5 格变 6 格",
+            build = { _, _ -> CanvasDemoPlugin() },
             defaultEnabled = false,
         ),
         BuiltinPluginEntry(

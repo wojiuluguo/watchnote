@@ -193,6 +193,22 @@ class UINode internal constructor(internal val kind: NodeKind) {
         align = pos
         return this
     }
+
+    /**
+     * 点中回调，坐标是归一化 0~1（相对这一块自己）。画布专用，官方行用 [action]。
+     *
+     *     Ui.canvas(64, pen -> pen.circle(0.5f, 0.5f, 0.4f)).onTap { x, y -> ... }
+     */
+    fun onTap(block: TapBlock): UINode {
+        tap = block
+        return this
+    }
+
+    /** 拖动回调，dx / dy 是归一化位移。画布专用。 */
+    fun onDrag(block: DragBlock): UINode {
+        drag = block
+        return this
+    }
 }
 
 /** 节点工厂。全部 @JvmStatic，外置插件用 Java 也能直接写。 */
