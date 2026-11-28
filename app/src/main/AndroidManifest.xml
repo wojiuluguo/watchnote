@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 4.1.28：App 自己下载更新包后直接拉起系统安装界面（手表上没有文件管理器，用户没法去 Download 里点 APK） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.type.watch" android:required="false" />
 
@@ -31,5 +33,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 4.1.28：把下载好的更新包以 content:// 交给系统安装器，不再用会被 Android 7+ 拒绝的 file:// -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.ioo.watchnote.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

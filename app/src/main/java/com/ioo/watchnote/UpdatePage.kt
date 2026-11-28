@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 import kotlinx.coroutines.Dispatchers
+import java.io.File
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -34,7 +35,9 @@ import kotlinx.coroutines.withContext
    4.1.26：App 内「检查更新」页
    - 进页面就查一次 GitHub 最新 Release（用户自己点的，不算偷跑）
    - 有新版：显示版本号 + Release 介绍全文 + 下载按钮
-   - 下载时显示自绘进度条（百分比 + 已下载/总大小），存到 Download 目录
+   - 下载时显示自绘进度条（百分比 + 已下载/总大小），存到 App 私有 updates 目录
+    - 4.1.28：下完直接拉起系统安装界面；没有「安装未知应用」权限就先跳设置页
+      （手表上没有文件管理器，让用户去 Download 里点 APK 是死路）
    ============================================================ */
 
 private sealed class UpdateUi {
@@ -42,7 +45,7 @@ private sealed class UpdateUi {
     object Checking : UpdateUi()
     data class Done(val result: UpdateCheck) : UpdateUi()
     data class Downloading(val done: Long, val total: Long) : UpdateUi()
-    data class Downloaded(val path: String) : UpdateUi()
+    data class Downloaded(val apk: java.io.File) : UpdateUi()
     data class DownloadFailed(val reason: String) : UpdateUi()
 }
 
@@ -56,6 +59,19 @@ internal fun UpdatePage(
     val downloader = remember { ApkDownloader(context) }
     val scope = rememberCoroutineScope()
     var ui by remember { mutableStateOf<UpdateUi>(UpdateUi.Idle) }
+
+    fun installNow(apk: java.io.File) {
+        when (val result = ApkInstaller.start(context, apk)) {
+            is InstallResult.Started -> onToast("正在打开安装界面")
+            is InstallResult.NeedPermission -> {
+                onToast("先允许「腕记」安装应用")
+                if (!ApkInstaller.openPermissionSettings(context)) {
+                    onToast("这台手表里找不到安装权限设置，可能不允许装应用")
+                }
+            }
+            is InstallResult.Failed -> onToast("装不了：" + result.reason)
+        }
+    }
 
     fun runCheck() {
         ui = UpdateUi.Checking
@@ -81,12 +97,12 @@ internal fun UpdatePage(
                 }
             }
             ui = outcome.fold(
-                onSuccess = { path -> UpdateUi.Downloaded(path) },
+                onSuccess = { apk -> UpdateUi.Downloaded(apk) },
                 onFailure = { e -> UpdateUi.DownloadFailed(e.message ?: e.javaClass.simpleName) }
             )
-            outcome.onSuccess { path ->
-                onToast("已保存到 " + path)
-                EventLog.add("update", "下载完成：" + path)
+            outcome.onSuccess { apk ->
+                EventLog.add("update", "下载完成：" + apk.name + "（" + apk.length() + " 字节）")
+                installNow(apk)
             }
             outcome.onFailure { e ->
                 EventLog.add("update", "下载失败：" + (e.message ?: e.javaClass.simpleName))
@@ -178,7 +194,7 @@ internal fun UpdatePage(
                         }
                         item {
                             Text(
-                                "下载好是 APK 文件，在 Download 目录里\n用文件管理器点开手动安装",
+                                "点「下载这个版本」，下完会自动弹出系统安装界面\n如果提示允许「安装未知应用」，点允许就行",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 9.5.sp,
                                 textAlign = TextAlign.Center,
@@ -255,21 +271,31 @@ internal fun UpdatePage(
                     ) {
                         Text("下载完成", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            state.path,
+                            state.apk.name,
                             color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 10.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                         )
                         Text(
-                            "在手表/手机的文件管理里打开 Download 目录，点 APK 安装",
+                            "点下面的「安装这个版本」，会直接弹出系统安装界面",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 9.5.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
                         )
+                        if (!ApkInstaller.canInstall(context)) {
+                            Text(
+                                "还没给安装权限：点「安装这个版本」会跳到设置，把「腕记」的「安装未知应用」打开，再回来点一次",
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 9.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                            )
+                        }
                     }
                 }
+                item { Fish { SettingPill("↓", "安装这个版本", onClick = { installNow(state.apk) }) } }
                 item { Fish { SettingPill("↻", "重新检查", trailing = checker.lastCheckText(), onClick = { runCheck() }) } }
             }
 

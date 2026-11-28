@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4.1.28：只把「更新包目录」这一处交给系统安装器，其余文件一律不对外暴露。 -->
+<paths>
+    <external-files-path name="updates_external" path="updates/" />
+    <files-path name="updates_internal" path="updates/" />
+</paths>

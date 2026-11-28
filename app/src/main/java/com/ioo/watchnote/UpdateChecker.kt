@@ -1,10 +1,7 @@
 package com.ioo.watchnote
 
-import android.content.ContentValues
 import android.content.Context
 import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -243,16 +240,24 @@ internal class UpdateChecker(context: Context) {
         const val DAY_MS = 24L * 60L * 60L * 1000L
     }
 }
-
-/** 下载更新包：先落 App 缓存，再发布到公共 Download 目录（跟导出日志同一套路）。 */
+/**
+ * 下载更新包。
+ *
+ * 4.1.28 起不再往公共 Download 目录写：手表上没有文件管理器，用户根本点不到那个 APK。
+ * 现在落在 App 自己的 updates 目录，下完由 [ApkInstaller] 直接交给系统安装器。
+ */
 internal class ApkDownloader(private val context: Context) {
 
     /**
      * @param onProgress 已下载字节 / 总字节（总数未知时是 0），在 IO 线程回调
-     * @return 用户能看到的路径，比如 Download/腕记-4.1.26.apk
+     * @return 下载好的安装包文件（在 App 私有 updates 目录里）
      */
-    fun download(url: String, fileName: String, sizeHint: Long, onProgress: (Long, Long) -> Unit): String {
-        val tmp = File(context.cacheDir, "watchnote-update.apk")
+    fun download(url: String, fileName: String, sizeHint: Long, onProgress: (Long, Long) -> Unit): File {
+        val dir = updateDir(context)
+        if (!dir.exists() && !dir.mkdirs()) throw java.io.IOException("建不了更新目录")
+        // 旧包先清掉：省空间，也保证待会儿装上的就是这次下的
+        dir.listFiles()?.forEach { it.delete() }
+        val tmp = File(dir, "watchnote-update.tmp")
         if (tmp.exists()) tmp.delete()
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 8000
@@ -283,44 +288,20 @@ internal class ApkDownloader(private val context: Context) {
             }
             if (total > 0 && done < total) throw java.io.IOException("下载不完整（" + done + "/" + total + " 字节）")
             if (done <= 0L) throw java.io.IOException("下载到的是空文件")
-            val path = publishToDownload(tmp, fileName)
-            tmp.delete()
-            return path
+            val target = File(dir, fileName)
+            if (target.exists()) target.delete()
+            if (!tmp.renameTo(target)) {
+                tmp.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
+                tmp.delete()
+            }
+            return target
         } finally {
             conn.disconnect()
             if (tmp.exists()) tmp.delete()
         }
     }
-
-    private fun publishToDownload(src: File, name: String): String {
-        if (Build.VERSION.SDK_INT >= 29) {
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.MIME_TYPE, "application/vnd.android.package-archive")
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
-            val resolver = context.contentResolver
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: throw java.io.IOException("写不进 Download 目录")
-            try {
-                val out = resolver.openOutputStream(uri) ?: throw java.io.IOException("写不进 Download 目录")
-                out.use { o -> src.inputStream().use { it.copyTo(o) } }
-                resolver.update(
-                    uri,
-                    ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
-                    null,
-                    null
-                )
-            } catch (e: Exception) {
-                resolver.delete(uri, null, null)
-                throw e
-            }
-            return "Download/" + name
-        }
-        val dir = context.getExternalFilesDir(null) ?: context.filesDir
-        val f = File(dir, name)
-        src.inputStream().use { input -> FileOutputStream(f).use { input.copyTo(it) } }
-        return f.absolutePath
-    }
 }
+
+/** 更新包存放目录：App 私有，卸载 App 时一起清掉，也不用向用户要存储权限。 */
+internal fun updateDir(context: Context): File =
+    context.getExternalFilesDir("updates") ?: File(context.filesDir, "updates")

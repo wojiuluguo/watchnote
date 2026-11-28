@@ -3,7 +3,7 @@
 给小米 Watch 5（Wear OS，480×480 圆屏）做的免费手表笔记应用：记作业、记事情、课程表、倒计时，配中国传统色主题，并带一套可扩展的插件系统。
 
 - 包名：`com.ioo.watchnote`
-- 当前版本：**4.1.27（versionCode 136）**
+- 当前版本：**4.1.28（versionCode 137）**
 - 技术：Kotlin + Jetpack Compose for Wear OS，原生实现，不依赖 WebView
 
 ## 支持作者
@@ -18,15 +18,15 @@
 
 ## 下载与安装（Releases）
 
-最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.27（versionCode 136）**：
+最新构建发布在 [GitHub Releases](https://github.com/wojiuluguo/watchnote/releases)，当前为 **v4.1.28（versionCode 137）**：
 
 | 附件 | 说明 |
 | --- | --- |
-| [watchnote-4.1.27-136.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.27/watchnote-4.1.27-136.apk) | 腕记 Beta 4.1.27（插件模块 0.2：整套官方 UI 变成插件 API），安装到手表/手机（Android 8.0+） |
-| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.27/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
-| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.27/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
+| [watchnote-4.1.28-137.apk](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.28/watchnote-4.1.28-137.apk) | 腕记 Beta 4.1.28（App 内更新下载完直接拉起安装；插件模块 0.2：整套官方 UI 变成插件 API），安装到手表/手机（Android 8.0+） |
+| [hello.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.28/hello.wplugin) | 示例外置插件：设置页底部多一行入口 |
+| [page-demo.wplugin](https://github.com/wojiuluguo/watchnote/releases/download/v4.1.28/page-demo.wplugin) | 示例页面插件 v3（minApi 2）：一个页面里演示整套官方 UI 行（大数字、进度条、进度环、步进、选项、开关、颜色卡、时间卡、柱状图） |
 
-4.1.26 起可以在手表里直接查新版：**关于 → 详细信息 → 检查更新**（进页面时若距上次超过 24 小时会自动查一次，平时不联网）。有新版会显示版本号和更新介绍，点下载会存到 Download 目录并显示进度条，装的时候手动点 APK 安装。
+4.1.26 起可以在手表里直接查新版：**关于 → 详细信息 → 检查更新**（进页面时若距上次超过 24 小时会自动查一次，平时不联网）。有新版会显示版本号和更新介绍，点下载有进度条；**4.1.28 起下载完会直接弹出系统安装界面**——手表上没有文件管理器，不用再自己去找 APK。第一次装会先跳到「允许腕记安装应用」开关，打开后回来点一次「安装这个版本」即可。
 
 安装后先别找插件：4.1.24 起插件模块**默认隐藏**，默认只加载官方主题颜色。要装插件先到「设置 → 关于 → 详细信息」，对版本号连点三下开启插件模块（再连点三下关闭），之后「关于」页会多出「插件自检」，确认插件自检 34/34 通过。插件安装见下文「插件系统」。
 
@@ -70,7 +70,7 @@ gradle --offline --console=plain :app:assembleRelease
 
 ## 文档
 
-- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.27 的更新记录
+- [docs/版本历史.md](docs/版本历史.md)：从早期版本到 4.1.28 的更新记录
 - [docs/最终版施工计划.md](docs/最终版施工计划.md)：最终版各 Step 的施工计划
 - [docs/插件模块-版本说明.md](docs/插件模块-版本说明.md)：插件系统逐版说明
 - [docs/插件模块-API设计.md](docs/插件模块-API设计.md)：插件 API 设计与硬规则

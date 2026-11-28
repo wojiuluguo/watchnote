@@ -28,6 +28,7 @@
 > 关于页改版 + 插件模块默认隐藏（三连点版本号开启，`plugin_module_enabled` 落盘）（4.1.23 / versionCode 132）；
 > 确认弹窗由官方 Wear AlertDialog 换成自绘（小米缺 `WearHapticFeedbackConstants` 会闪退），随后外观还原成大圆 ✕/✓ 按钮（4.1.24 / 133、4.1.25 / 134）；
 > App 内检查更新（GitHub Releases latest + 说明 + 下载进度条，启动不联网）（4.1.26 / 135）；
+> App 内更新「下载完直接装」：不再往公共 Download 写（手表没有文件管理器），APK 存 App 私有 `updates` 目录，用 FileProvider 交 content:// 给系统安装器，Manifest 加 `REQUEST_INSTALL_PACKAGES`，没权限先跳「安装未知应用」开关页（4.1.28 / versionCode 137）。插件 API 没有变化，自测仍 34 项；
 > **插件模块 0.2**：把宿主在用的官方 UI 全部封成插件 API——`SimplePage` 扩充到 17 种行（section/note/hero/item/progress/ring/stepper/chips/colorCard/timeCard/toggle/divider/space/empty/bars）并给 Kotlin 侧补齐同名 `Official.*`，带参数行的回调编号定死（`id:序号` / `id:±步` / `id:on|off`），`PluginApi.API_LEVEL` 1→2、`MODULE_VERSION` 0.1→0.2，自测 34 项（4.1.27 / versionCode 136）。
 
 ## 一句话结论
